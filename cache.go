@@ -2,6 +2,7 @@ package loadingcache
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 
@@ -75,11 +76,25 @@ func Load(f LoadFunc) CacheOption {
 	}
 }
 
+// MaxSize limits the number of entries allowed in the cache.
+// If the limit is achieved, an eviction process will take place,
+// this means that eviction policies will be executed such as write
+// time, read time or random entry if no evection policy frees up
+// space.
+func MaxSize(maxSize int32) CacheOption {
+	return func(cache Cache) {
+		if g, ok := cache.(*genericCache); ok {
+			g.maxSize = maxSize
+		}
+	}
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
 	clock    clock.Clock
 	loadFunc LoadFunc
+	maxSize  int32
 
 	expireAfterWrite time.Duration
 	dataWriteTime    map[interface{}]time.Time
@@ -95,6 +110,7 @@ type genericCache struct {
 func NewGenericCache(options ...CacheOption) Cache {
 	cache := &genericCache{
 		clock:         clock.New(),
+		maxSize:       math.MaxInt32,
 		data:          map[interface{}]interface{}{},
 		dataWriteTime: map[interface{}]time.Time{},
 		dataReadTime:  map[interface{}]time.Time{},
@@ -158,6 +174,15 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 // internalPut actually saves the values into the internal structures.
 // It does not handle any synchronization, leaving that to the caller.
 func (g *genericCache) internalPut(key interface{}, value interface{}) {
+	if int32(len(g.data)) >= g.maxSize {
+		// If eviction is needed it currently removes a random entry,
+		// since maps do not have a deterministic order.
+		// TODO: Apply smarter eviction policies if available
+		for toEvict := range g.data {
+			delete(g.data, toEvict)
+			break
+		}
+	}
 	g.data[key] = value
 	if g.expireAfterWrite > 0 {
 		g.dataWriteTime[key] = g.clock.Now()

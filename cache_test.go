@@ -135,6 +135,23 @@ func TestLoadFunc(t *testing.T) {
 	require.Contains(t, err.Error(), "failing on request")
 }
 
+func TestMaxSize(t *testing.T) {
+	cache := loadingcache.NewGenericCache(loadingcache.MaxSize(1))
+
+	// With a capacity of one element, adding a second element
+	// should remove the first
+	cache.Put("a", 1)
+	cache.Put("b", 2)
+
+	_, err := cache.Get("a")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+
+	val, err := cache.Get("b")
+	require.NoError(t, err)
+	require.Equal(t, 2, val)
+}
+
 // testLoadFunc provides a configurable loading function that may fail
 type testLoadFunc struct {
 	fail bool
