@@ -2,8 +2,10 @@ package loadingcache_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Hartimer/loadingcache"
+	"github.com/benbjohnson/clock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,6 +39,32 @@ func TestBasicMethods(t *testing.T) {
 
 	// Invalidate key and get it
 	cache.Invalidate("a")
+	_, err = cache.Get("a")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+}
+
+func TestExpireAfterWrite(t *testing.T) {
+	mockClock := clock.NewMock()
+	cache := loadingcache.NewGenericCache(
+		loadingcache.WithClock(mockClock),
+		loadingcache.ExpireAfterWrite(time.Minute),
+	)
+	cache.Put("a", 1)
+	val, err := cache.Get("a")
+	require.NoError(t, err)
+	require.Equal(t, 1, val)
+
+	// Advance clock up to the expiry threshold
+	mockClock.Add(time.Minute)
+
+	// Value should still be returned
+	val, err = cache.Get("a")
+	require.NoError(t, err)
+	require.Equal(t, 1, val)
+
+	// Moving just past the threshold should yield no value
+	mockClock.Add(1)
 	_, err = cache.Get("a")
 	require.Error(t, err)
 	require.Equal(t, loadingcache.ErrKeyNotFound, err)
