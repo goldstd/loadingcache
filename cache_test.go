@@ -108,40 +108,41 @@ func TestExpireAfterRead(t *testing.T) {
 }
 
 func TestLoadFunc(t *testing.T) {
-	// loadFunc converts the key (assumed a boolean) to its string representation.
-	// It errors if the boolean is true
-	var loadFunc loadingcache.LoadFunc = func(key interface{}) (interface{}, error) {
-		boolKey, ok := key.(bool)
-		if !ok {
-			panic("Somehow the key is not a boolean")
-		}
-		if boolKey {
-			return nil, errors.New("Please fail")
-		}
-		return fmt.Sprint(boolKey), nil
-	}
-
-	cache := loadingcache.NewGenericCache(loadingcache.Load(loadFunc))
+	loadFunc := &testLoadFunc{}
+	cache := loadingcache.NewGenericCache(loadingcache.Load(loadFunc.LoadFunc))
 
 	// Getting a value that does not exist should load it
-	val, err := cache.Get(false)
+	val, err := cache.Get("a")
 	require.NoError(t, err)
-	require.Equal(t, "false", val)
+	require.Equal(t, "a", val)
 
 	// Getting a value that the loader fails to error should propagate the error
-	_, err = cache.Get(true)
+	loadFunc.fail = true
+	_, err = cache.Get("b")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Please fail")
+	require.Contains(t, err.Error(), "failing on request")
 
 	// Adding the value manually should succeeed
-	cache.Put(true, "true")
-	val, err = cache.Get(true)
+	cache.Put("b", "true")
+	val, err = cache.Get("b")
 	require.NoError(t, err)
 	require.Equal(t, "true", val)
 
 	// After invalidating, getting should fail again
-	cache.Invalidate(true)
-	_, err = cache.Get(true)
+	cache.Invalidate("b")
+	_, err = cache.Get("b")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Please fail")
+	require.Contains(t, err.Error(), "failing on request")
+}
+
+// testLoadFunc provides a configurable loading function that may fail
+type testLoadFunc struct {
+	fail bool
+}
+
+func (t *testLoadFunc) LoadFunc(key interface{}) (interface{}, error) {
+	if t.fail {
+		return nil, errors.New("failing on request")
+	}
+	return fmt.Sprint(key), nil
 }
