@@ -2,6 +2,7 @@ package loadingcache
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/benbjohnson/clock"
@@ -80,11 +81,13 @@ type genericCache struct {
 	clock    clock.Clock
 	loadFunc LoadFunc
 
-	expireAfterWrite time.Duration
-	dataWriteTime    map[interface{}]time.Time
+	expireAfterWrite  time.Duration
+	dataWriteTime     map[interface{}]time.Time
+	dataWriteTimeLock sync.Mutex
 
-	expireAfterRead time.Duration
-	dataReadTime    map[interface{}]time.Time
+	expireAfterRead  time.Duration
+	dataReadTime     map[interface{}]time.Time
+	dataReadTimeLock sync.Mutex
 
 	data map[interface{}]interface{}
 }
@@ -92,10 +95,12 @@ type genericCache struct {
 // NewGenericCache returns a new instance of a generic cache
 func NewGenericCache(options ...CacheOption) Cache {
 	cache := &genericCache{
-		clock:         clock.New(),
-		data:          map[interface{}]interface{}{},
-		dataWriteTime: map[interface{}]time.Time{},
-		dataReadTime:  map[interface{}]time.Time{},
+		clock:            clock.New(),
+		expireAfterWrite: 0,
+		expireAfterRead:  0,
+		data:             map[interface{}]interface{}{},
+		dataWriteTime:    map[interface{}]time.Time{},
+		dataReadTime:     map[interface{}]time.Time{},
 	}
 	for _, option := range options {
 		option(cache)
@@ -109,16 +114,22 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 		return g.load(key)
 	}
 
-	if writeTime, exists := g.dataWriteTime[key]; exists && g.clock.Now().After(writeTime.Add(g.expireAfterWrite)) {
+	g.dataWriteTimeLock.Lock()
+	writeTime, exists := g.dataWriteTime[key]
+	g.dataWriteTimeLock.Unlock()
+	if exists && g.clock.Now().After(writeTime.Add(g.expireAfterWrite)) {
 		return g.load(key)
 	}
 
-	if readTime, exists := g.dataReadTime[key]; exists {
-		if g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
-			return g.load(key)
-		}
-		g.dataReadTime[key] = g.clock.Now()
+	g.dataReadTimeLock.Lock()
+	readTime, exists := g.dataReadTime[key]
+	g.dataReadTimeLock.Unlock()
+	if exists && g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
+		return g.load(key)
 	}
+	g.dataReadTimeLock.Lock()
+	g.dataReadTime[key] = g.clock.Now()
+	g.dataReadTimeLock.Unlock()
 
 	return val, nil
 }
@@ -138,10 +149,14 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 func (g *genericCache) Put(key interface{}, value interface{}) {
 	g.data[key] = value
 	if g.expireAfterWrite > 0 {
+		g.dataWriteTimeLock.Lock()
 		g.dataWriteTime[key] = g.clock.Now()
+		g.dataWriteTimeLock.Unlock()
 	}
 	if g.expireAfterRead > 0 {
+		g.dataReadTimeLock.Lock()
 		g.dataReadTime[key] = g.clock.Now()
+		g.dataReadTimeLock.Unlock()
 	}
 }
 
