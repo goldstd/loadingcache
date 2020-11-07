@@ -12,6 +12,35 @@ import (
 // ErrKeyNotFound represents an error indicating that the key was not found
 var ErrKeyNotFound error = errors.New("Key not found")
 
+// RemovalReason is an enum describing the causes for an entry to
+// be removed from the cache.
+type RemovalReason string
+
+const (
+	// RemovalReasonExplicit means the entry was explicitly invalidated
+	RemovalReasonExplicit RemovalReason = "EXPLICIT"
+
+	// RemovalReasonReplaced means the entry was replaced by a new one
+	RemovalReasonReplaced RemovalReason = "REPLACED"
+
+	// RemovalReasonExpired means the entry expired, e.g. too much time
+	// since last read/write.
+	RemovalReasonExpired RemovalReason = "EXPIRED"
+
+	// RemovalReasonSize means the entry was removed due to the cache size.
+	RemovalReasonSize RemovalReason = "SIZE"
+)
+
+// RemovalNotification is passed to listeners everytime an entry is removed
+type RemovalNotification struct {
+	Key    interface{}
+	Value  interface{}
+	Reason RemovalReason
+}
+
+// RemovalListenerFunc represents a removal listener
+type RemovalListenerFunc func(RemovalNotification)
+
 // Cache describe the base interface to interact with a generic cache.
 //
 // This interface reduces all keys and values to a generic interface{}.
@@ -92,12 +121,23 @@ func MaxSize(maxSize int32) CacheOption {
 	}
 }
 
+// RemovalListener adds a removal listener
+func RemovalListener(listener RemovalListenerFunc) CacheOption {
+	return func(cache Cache) {
+		if g, ok := cache.(*genericCache); ok {
+			g.removalListeners = append(g.removalListeners, listener)
+		}
+	}
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
 	clock    clock.Clock
 	loadFunc LoadFunc
 	maxSize  int32
+
+	removalListeners []RemovalListenerFunc
 
 	expireAfterWrite time.Duration
 	dataWriteTime    map[interface{}]time.Time
@@ -135,11 +175,13 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 
 	writeTime, exists := g.dataWriteTime[key]
 	if exists && g.clock.Now().After(writeTime.Add(g.expireAfterWrite)) {
+		g.concurrentEvict(key, RemovalReasonExpired)
 		return g.load(key)
 	}
 
 	readTime, exists := g.dataReadTime[key]
 	if exists && g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
+		g.concurrentEvict(key, RemovalReasonExpired)
 		return g.load(key)
 	}
 	if g.expireAfterRead > 0 {
@@ -174,6 +216,39 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 	return val, nil
 }
 
+func (g *genericCache) concurrentEvict(key interface{}, reason RemovalReason) {
+	g.dataLock.Lock()
+	defer g.dataLock.Unlock()
+	g.evict(key, reason)
+}
+
+func (g *genericCache) evict(key interface{}, reason RemovalReason) {
+	val, exists := g.data[key]
+	if !exists {
+		return
+	}
+	delete(g.data, key)
+
+	if len(g.removalListeners) == 0 {
+		return
+	}
+	notification := RemovalNotification{
+		Key:    key,
+		Value:  val,
+		Reason: reason,
+	}
+	var listenerWg sync.WaitGroup
+	listenerWg.Add(len(g.removalListeners))
+	for i := range g.removalListeners {
+		listener := g.removalListeners[i]
+		go func() {
+			defer listenerWg.Done()
+			listener(notification)
+		}()
+	}
+	listenerWg.Wait()
+}
+
 // internalPut actually saves the values into the internal structures.
 // It does not handle any synchronization, leaving that to the caller.
 func (g *genericCache) internalPut(key interface{}, value interface{}) {
@@ -182,7 +257,7 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 		// since maps do not have a deterministic order.
 		// TODO: Apply smarter eviction policies if available
 		for toEvict := range g.data {
-			delete(g.data, toEvict)
+			g.evict(toEvict, RemovalReasonSize)
 			break
 		}
 	}
@@ -198,6 +273,9 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 func (g *genericCache) Put(key interface{}, value interface{}) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
+	if _, exists := g.data[key]; exists {
+		g.evict(key, RemovalReasonReplaced)
+	}
 	g.internalPut(key, value)
 }
 

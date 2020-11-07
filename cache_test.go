@@ -175,6 +175,76 @@ func TestMaxSize(t *testing.T) {
 	require.Equal(t, 2, val)
 }
 
+func TestRemovalListeners(t *testing.T) {
+	mockClock := clock.NewMock()
+	removalListener := &testRemovalListener{}
+	removalListener2 := &testRemovalListener{}
+	cache := loadingcache.NewGenericCache(
+		loadingcache.Clock(mockClock),
+		loadingcache.ExpireAfterRead(time.Minute),
+		loadingcache.ExpireAfterWrite(2*time.Minute),
+		loadingcache.MaxSize(1),
+		loadingcache.RemovalListener(removalListener.Listener),
+		loadingcache.RemovalListener(removalListener2.Listener),
+	)
+
+	// Removal due to replacement
+	cache.Put("a", 10)
+	cache.Put("a", 1)
+	lastNotification := removalListener.lastRemovalNotification
+	lastNotification2 := removalListener2.lastRemovalNotification
+	require.Equal(t, loadingcache.RemovalReasonReplaced, lastNotification.Reason)
+	require.Equal(t, loadingcache.RemovalReasonReplaced, lastNotification2.Reason)
+	require.Equal(t, "a", lastNotification.Key)
+	require.Equal(t, 10, lastNotification.Value)
+
+	// Removal due to size
+	cache.Put("b", 2)
+	lastNotification = removalListener.lastRemovalNotification
+	lastNotification2 = removalListener2.lastRemovalNotification
+	require.Equal(t, loadingcache.RemovalReasonSize, lastNotification.Reason)
+	require.Equal(t, loadingcache.RemovalReasonSize, lastNotification2.Reason)
+	require.Equal(t, "a", lastNotification.Key)
+	require.Equal(t, 1, lastNotification.Value)
+
+	// Removal due to read expiration
+	mockClock.Add(time.Minute + 1)
+	// We don't care about the value or error, we just want to trigger the eviction
+	_, _ = cache.Get("b")
+	lastNotification = removalListener.lastRemovalNotification
+	lastNotification2 = removalListener2.lastRemovalNotification
+	require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification.Reason)
+	require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification2.Reason)
+	require.Equal(t, "b", lastNotification.Key)
+	require.Equal(t, 2, lastNotification.Value)
+
+	// Removal due to write expiration
+	cache.Put("b", 3)
+	mockClock.Add(time.Minute)
+	// Doing a read to refresh the expiry
+	_, _ = cache.Get("b")
+	mockClock.Add(time.Minute)
+	// Doing a another read to refresh the expiry
+	_, _ = cache.Get("b")
+	mockClock.Add(1)
+	// We don't care about the value or error, we just want to trigger the eviction
+	_, _ = cache.Get("b")
+	lastNotification = removalListener.lastRemovalNotification
+	lastNotification2 = removalListener2.lastRemovalNotification
+	require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification.Reason)
+	require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification2.Reason)
+	require.Equal(t, "b", lastNotification.Key)
+	require.Equal(t, 3, lastNotification.Value)
+}
+
+type testRemovalListener struct {
+	lastRemovalNotification loadingcache.RemovalNotification
+}
+
+func (t *testRemovalListener) Listener(notification loadingcache.RemovalNotification) {
+	t.lastRemovalNotification = notification
+}
+
 // testLoadFunc provides a configurable loading function that may fail
 type testLoadFunc struct {
 	fail bool
