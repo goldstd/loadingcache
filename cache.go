@@ -52,13 +52,25 @@ func ExpireAfterWrite(duration time.Duration) CacheOption {
 	}
 }
 
+// ExpireAfterRead configures the cache to expire entries after
+// a given duration after reading.
+func ExpireAfterRead(duration time.Duration) CacheOption {
+	return func(cache Cache) {
+		if g, ok := cache.(*genericCache); ok {
+			g.expireAfterRead = duration
+		}
+	}
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
 	clock            clock.Clock
 	expireAfterWrite time.Duration
+	expireAfterRead  time.Duration
 	data             map[interface{}]interface{}
 	dataWriteTime    map[interface{}]time.Time
+	dataReadTime     map[interface{}]time.Time
 }
 
 // NewGenericCache returns a new instance of a generic cache
@@ -67,6 +79,7 @@ func NewGenericCache(options ...CacheOption) Cache {
 		clock:         clock.New(),
 		data:          map[interface{}]interface{}{},
 		dataWriteTime: map[interface{}]time.Time{},
+		dataReadTime:  map[interface{}]time.Time{},
 	}
 	for _, option := range options {
 		option(cache)
@@ -84,6 +97,13 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 		return nil, ErrKeyNotFound
 	}
 
+	if readTime, exists := g.dataReadTime[key]; exists {
+		if g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
+			return nil, ErrKeyNotFound
+		}
+		g.dataReadTime[key] = g.clock.Now()
+	}
+
 	return val, nil
 }
 
@@ -91,6 +111,9 @@ func (g *genericCache) Put(key interface{}, value interface{}) {
 	g.data[key] = value
 	if g.expireAfterWrite > 0 {
 		g.dataWriteTime[key] = g.clock.Now()
+	}
+	if g.expireAfterRead > 0 {
+		g.dataReadTime[key] = g.clock.Now()
 	}
 }
 

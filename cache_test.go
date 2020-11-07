@@ -69,3 +69,38 @@ func TestExpireAfterWrite(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, loadingcache.ErrKeyNotFound, err)
 }
+
+func TestExpireAfterRead(t *testing.T) {
+	mockClock := clock.NewMock()
+	cache := loadingcache.NewGenericCache(
+		loadingcache.WithClock(mockClock),
+		loadingcache.ExpireAfterRead(time.Minute),
+	)
+	cache.Put("a", 1)
+	val, err := cache.Get("a")
+	require.NoError(t, err)
+	require.Equal(t, 1, val)
+
+	// Advance clock up to the expiry threshold
+	mockClock.Add(time.Minute)
+
+	// Value should still be returned
+	val, err = cache.Get("a")
+	require.NoError(t, err)
+	require.Equal(t, 1, val)
+
+	// Since the value was read, we can move the clock another chunk
+	// Advance clock up to the expiry threshold
+	mockClock.Add(time.Minute)
+
+	// Value should still be returned
+	val, err = cache.Get("a")
+	require.NoError(t, err)
+	require.Equal(t, 1, val)
+
+	// Moving just past the threshold should yield no value
+	mockClock.Add(time.Minute + 1)
+	_, err = cache.Get("a")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+}
