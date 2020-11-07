@@ -1,6 +1,8 @@
 package loadingcache_test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,7 +49,7 @@ func TestBasicMethods(t *testing.T) {
 func TestExpireAfterWrite(t *testing.T) {
 	mockClock := clock.NewMock()
 	cache := loadingcache.NewGenericCache(
-		loadingcache.WithClock(mockClock),
+		loadingcache.Clock(mockClock),
 		loadingcache.ExpireAfterWrite(time.Minute),
 	)
 	cache.Put("a", 1)
@@ -73,7 +75,7 @@ func TestExpireAfterWrite(t *testing.T) {
 func TestExpireAfterRead(t *testing.T) {
 	mockClock := clock.NewMock()
 	cache := loadingcache.NewGenericCache(
-		loadingcache.WithClock(mockClock),
+		loadingcache.Clock(mockClock),
 		loadingcache.ExpireAfterRead(time.Minute),
 	)
 	cache.Put("a", 1)
@@ -103,4 +105,43 @@ func TestExpireAfterRead(t *testing.T) {
 	_, err = cache.Get("a")
 	require.Error(t, err)
 	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+}
+
+func TestLoadFunc(t *testing.T) {
+	// loadFunc converts the key (assumed a boolean) to its string representation.
+	// It errors if the boolean is true
+	var loadFunc loadingcache.LoadFunc = func(key interface{}) (interface{}, error) {
+		boolKey, ok := key.(bool)
+		if !ok {
+			panic("Somehow the key is not a boolean")
+		}
+		if boolKey {
+			return nil, errors.New("Please fail")
+		}
+		return fmt.Sprint(boolKey), nil
+	}
+
+	cache := loadingcache.NewGenericCache(loadingcache.Load(loadFunc))
+
+	// Getting a value that does not exist should load it
+	val, err := cache.Get(false)
+	require.NoError(t, err)
+	require.Equal(t, "false", val)
+
+	// Getting a value that the loader fails to error should propagate the error
+	_, err = cache.Get(true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Please fail")
+
+	// Adding the value manually should succeeed
+	cache.Put(true, "true")
+	val, err = cache.Get(true)
+	require.NoError(t, err)
+	require.Equal(t, "true", val)
+
+	// After invalidating, getting should fail again
+	cache.Invalidate(true)
+	_, err = cache.Get(true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Please fail")
 }

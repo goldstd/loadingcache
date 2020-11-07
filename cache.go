@@ -31,10 +31,13 @@ type Cache interface {
 // CacheOption describes an option that can configure the cache
 type CacheOption func(Cache)
 
-// WithClock allows passing a custom clock to be used with the cache.
+// LoadFunc represents a function that given a key, it returns a value or an error.
+type LoadFunc func(interface{}) (interface{}, error)
+
+// Clock allows passing a custom clock to be used with the cache.
 //
 // This is useful for testing, where controlling time is important.
-func WithClock(clk clock.Clock) CacheOption {
+func Clock(clk clock.Clock) CacheOption {
 	return func(cache Cache) {
 		if g, ok := cache.(*genericCache); ok {
 			g.clock = clk
@@ -62,15 +65,28 @@ func ExpireAfterRead(duration time.Duration) CacheOption {
 	}
 }
 
+// Load configures a loading function
+func Load(f LoadFunc) CacheOption {
+	return func(cache Cache) {
+		if g, ok := cache.(*genericCache); ok {
+			g.loadFunc = f
+		}
+	}
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
-	clock            clock.Clock
+	clock    clock.Clock
+	loadFunc LoadFunc
+
 	expireAfterWrite time.Duration
-	expireAfterRead  time.Duration
-	data             map[interface{}]interface{}
 	dataWriteTime    map[interface{}]time.Time
-	dataReadTime     map[interface{}]time.Time
+
+	expireAfterRead time.Duration
+	dataReadTime    map[interface{}]time.Time
+
+	data map[interface{}]interface{}
 }
 
 // NewGenericCache returns a new instance of a generic cache
@@ -90,20 +106,32 @@ func NewGenericCache(options ...CacheOption) Cache {
 func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	val, exists := g.data[key]
 	if !exists {
-		return nil, ErrKeyNotFound
+		return g.load(key)
 	}
 
 	if writeTime, exists := g.dataWriteTime[key]; exists && g.clock.Now().After(writeTime.Add(g.expireAfterWrite)) {
-		return nil, ErrKeyNotFound
+		return g.load(key)
 	}
 
 	if readTime, exists := g.dataReadTime[key]; exists {
 		if g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
-			return nil, ErrKeyNotFound
+			return g.load(key)
 		}
 		g.dataReadTime[key] = g.clock.Now()
 	}
 
+	return val, nil
+}
+
+func (g *genericCache) load(key interface{}) (interface{}, error) {
+	if g.loadFunc == nil {
+		return nil, ErrKeyNotFound
+	}
+	val, err := g.loadFunc(key)
+	if err != nil {
+		return nil, err
+	}
+	g.Put(key, val)
 	return val, nil
 }
 
