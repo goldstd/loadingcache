@@ -44,6 +44,29 @@ func TestBasicMethods(t *testing.T) {
 	_, err = cache.Get("a")
 	require.Error(t, err)
 	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+
+	// Invalidate multiple keys at once
+	cache.Put("a", 1)
+	cache.Put("b", 2)
+	cache.Invalidate("a", "b")
+	_, err = cache.Get("a")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	_, err = cache.Get("b")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+
+	// Invalidate all keys
+	cache.Put("a", 1)
+	cache.Put("b", 2)
+	cache.InvalidateAll()
+	_, err = cache.Get("a")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	_, err = cache.Get("b")
+	require.Error(t, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+
 }
 
 func TestExpireAfterWrite(t *testing.T) {

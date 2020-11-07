@@ -26,8 +26,11 @@ type Cache interface {
 	// is replaced.
 	Put(key interface{}, value interface{})
 
-	// Invalidate removes a key from the cache. If no key exists it is a noop.
-	Invalidate(key interface{})
+	// Invalidate removes keys from the cache. If a key does not exists it is a noop.
+	Invalidate(key interface{}, keys ...interface{})
+
+	// InvalidateAll invalidates all keys
+	InvalidateAll()
 }
 
 // CacheOption describes an option that can configure the cache
@@ -198,8 +201,19 @@ func (g *genericCache) Put(key interface{}, value interface{}) {
 	g.internalPut(key, value)
 }
 
-func (g *genericCache) Invalidate(key interface{}) {
+func (g *genericCache) Invalidate(key interface{}, keys ...interface{}) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 	delete(g.data, key)
+	for _, k := range keys {
+		delete(g.data, k)
+	}
+}
+
+func (g *genericCache) InvalidateAll() {
+	g.dataLock.Lock()
+	defer g.dataLock.Unlock()
+	for key := range g.data {
+		delete(g.data, key)
+	}
 }
