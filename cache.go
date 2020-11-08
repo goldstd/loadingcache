@@ -1,12 +1,12 @@
 package loadingcache
 
 import (
-	"errors"
 	"math"
 	"sync"
 	"time"
 
 	"github.com/benbjohnson/clock"
+	"github.com/pkg/errors"
 )
 
 // ErrKeyNotFound represents an error indicating that the key was not found
@@ -169,20 +169,23 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	val, exists := g.data[key]
 	if !exists {
 		g.dataLock.RUnlock()
-		return g.load(key)
+		val, err := g.load(key)
+		return val, errors.Wrap(err, "")
 	}
 	g.dataLock.RUnlock()
 
 	writeTime, exists := g.dataWriteTime[key]
 	if exists && g.clock.Now().After(writeTime.Add(g.expireAfterWrite)) {
 		g.concurrentEvict(key, RemovalReasonExpired)
-		return g.load(key)
+		val, err := g.load(key)
+		return val, errors.Wrap(err, "")
 	}
 
 	readTime, exists := g.dataReadTime[key]
 	if exists && g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
 		g.concurrentEvict(key, RemovalReasonExpired)
-		return g.load(key)
+		val, err := g.load(key)
+		return val, errors.Wrap(err, "")
 	}
 	if g.expireAfterRead > 0 {
 		// It is possible that this will race. It will only be a problem
@@ -210,7 +213,7 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 
 	val, err := g.loadFunc(key)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to load key %v", key)
 	}
 	g.internalPut(key, val)
 	return val, nil

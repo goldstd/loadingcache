@@ -3,13 +3,13 @@ package generator
 
 import (
 	"bytes"
-	"fmt"
 	"html/template"
 	"io/ioutil"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/pkg/errors"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/imports"
 )
@@ -53,7 +53,7 @@ var tmpl = template.Must(template.New("typedCacheTemplate").Parse(typedCacheTemp
 func parseType(str string) (*goType, error) {
 	parts := partsRe.FindStringSubmatch(str)
 	if len(parts) != 4 {
-		return nil, fmt.Errorf("type must be in the form []*github.com/import/path.Name")
+		return nil, errors.New("type must be in the form []*github.com/import/path.Name")
 	}
 
 	t := &goType{
@@ -70,10 +70,10 @@ func parseType(str string) (*goType, error) {
 	if t.ImportPath != "" {
 		p, err := packages.Load(&packages.Config{Mode: packages.NeedName}, t.ImportPath)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "")
 		}
 		if len(p) != 1 {
-			return nil, fmt.Errorf("not found")
+			return nil, errors.New("not found")
 		}
 
 		t.ImportName = p[0].Name
@@ -88,11 +88,11 @@ func getPackage(dir string) (*packages.Package, error) {
 	}, ".")
 
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "")
 	}
 
 	if len(p) != 1 {
-		return nil, fmt.Errorf("unable to find package info for %s", dir)
+		return nil, errors.New("unable to find package info for " + dir)
 	}
 
 	return p[0], nil
@@ -105,16 +105,16 @@ func Generate(wd string, name string, keyType string, valueType string) error {
 	var err error
 	tmplValues.KeyType, err = parseType(keyType)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "faile to parse key type")
 	}
 	tmplValues.ValueType, err = parseType(valueType)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to parse value type")
 	}
 
 	genPkg, err := getPackage(wd)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to get package out of current working directory")
 	}
 	tmplValues.Package = genPkg.Name
 
@@ -133,14 +133,14 @@ func Generate(wd string, name string, keyType string, valueType string) error {
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, tmplValues); err != nil {
-		return err
+		return errors.Wrap(err, "failed to execute template")
 	}
 	src, err := imports.Process(filepath, buf.Bytes(), nil)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to apply go imports")
 	}
 	if err := ioutil.WriteFile(filepath, src, 0644); err != nil {
-		return err
+		return errors.Wrap(err, "failed to write file")
 	}
 	return nil
 }

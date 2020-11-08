@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Hartimer/loadingcache"
+	"github.com/pkg/errors"
 )
 
 func ExampleSimpleUsage() {
@@ -21,7 +22,7 @@ func ExampleSimpleUsage() {
 
 	// Getting a value that does not exist
 	_, err := cache.Get("d")
-	if err == loadingcache.ErrKeyNotFound {
+	if errors.Cause(err) == loadingcache.ErrKeyNotFound {
 		fmt.Println("That key does not exist")
 	}
 

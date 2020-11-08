@@ -1,13 +1,13 @@
 package loadingcache_test
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/Hartimer/loadingcache"
 	"github.com/benbjohnson/clock"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +18,7 @@ func TestBasicMethods(t *testing.T) {
 	// Getting a key that does not exist should error
 	_, err := cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 
 	// Invalidating a key that doesn't exist
 	cache.Invalidate("a")
@@ -43,7 +43,7 @@ func TestBasicMethods(t *testing.T) {
 	cache.Invalidate("a")
 	_, err = cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 
 	// Invalidate multiple keys at once
 	cache.Put("a", 1)
@@ -51,10 +51,10 @@ func TestBasicMethods(t *testing.T) {
 	cache.Invalidate("a", "b")
 	_, err = cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 	_, err = cache.Get("b")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 
 	// Invalidate all keys
 	cache.Put("a", 1)
@@ -62,11 +62,10 @@ func TestBasicMethods(t *testing.T) {
 	cache.InvalidateAll()
 	_, err = cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 	_, err = cache.Get("b")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
-
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 }
 
 func TestExpireAfterWrite(t *testing.T) {
@@ -92,7 +91,7 @@ func TestExpireAfterWrite(t *testing.T) {
 	mockClock.Add(1)
 	_, err = cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 }
 
 func TestExpireAfterRead(t *testing.T) {
@@ -127,7 +126,7 @@ func TestExpireAfterRead(t *testing.T) {
 	mockClock.Add(time.Minute + 1)
 	_, err = cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 }
 
 func TestLoadFunc(t *testing.T) {
@@ -168,7 +167,7 @@ func TestMaxSize(t *testing.T) {
 
 	_, err := cache.Get("a")
 	require.Error(t, err)
-	require.Equal(t, loadingcache.ErrKeyNotFound, err)
+	require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 
 	val, err := cache.Get("b")
 	require.NoError(t, err)
