@@ -12,7 +12,7 @@ func main() {
 	var name = flag.String("name", "TypedCache", "Name of the typed cache type")
 	var keyType = flag.String("key", "", "Type of the key")
 	var valueType = flag.String("value", "", "Type of the value")
-	var verbose = flag.Boolean("verbose", false, "Enable verbose mode")
+	var verbose = flag.Bool("verbose", false, "Enable verbose mode")
 	flag.Parse()
 
 	if keyType == nil || *keyType == "" {
@@ -28,19 +28,19 @@ func main() {
 
 	wd, err := os.Getwd()
 	if err != nil {
-		if verbose != nil && verbose {
+		if verbose != nil && *verbose {
 			fmt.Fprintf(os.Stderr, "%+v", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "%v", err))
+			fmt.Fprintf(os.Stderr, "%v", err)
 		}
 		os.Exit(2)
 	}
 	err = generator.Generate(wd, *name, *keyType, *valueType)
 	if err != nil {
-		if verbose != nil && verbose {
+		if verbose != nil && *verbose {
 			fmt.Fprintf(os.Stderr, "%+v", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "%v", err))
+			fmt.Fprintf(os.Stderr, "%v", err)
 		}
 		os.Exit(3)
 	}
