@@ -151,12 +151,6 @@ func New(options CacheOptions) Cache {
 		}
 		return s
 	}
-
-	cache := &genericCache{
-		CacheOptions: options,
-		data:         map[interface{}]*cacheEntry{},
-	}
-	return cache
 }
 
 type shardedCache struct {
