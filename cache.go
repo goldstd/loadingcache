@@ -92,6 +92,7 @@ func Clock(clk clock.Clock) CacheOption {
 func ExpireAfterWrite(duration time.Duration) CacheOption {
 	return func(cache Cache) {
 		cast(cache).expireAfterWrite = duration
+		cast(cache).expiresAfterWrite = true
 	}
 }
 
@@ -100,6 +101,7 @@ func ExpireAfterWrite(duration time.Duration) CacheOption {
 func ExpireAfterRead(duration time.Duration) CacheOption {
 	return func(cache Cache) {
 		cast(cache).expireAfterRead = duration
+		cast(cache).expiresAfterRead = true
 	}
 }
 
@@ -138,29 +140,44 @@ type genericCache struct {
 
 	removalListeners []RemovalListenerFunc
 
-	expireAfterWrite time.Duration
-	dataWriteTime    map[interface{}]time.Time
+	expireAfterWrite  time.Duration
+	expiresAfterWrite bool
 
-	expireAfterRead time.Duration
-	dataReadTime    map[interface{}]time.Time
+	expireAfterRead  time.Duration
+	expiresAfterRead bool
 
-	data     map[interface{}]interface{}
+	data     map[interface{}]*cacheEntry
 	dataLock sync.RWMutex
+}
+
+type cacheEntry struct {
+	key       interface{}
+	value     interface{}
+	lastRead  time.Time
+	lastWrite time.Time
 }
 
 // NewGenericCache returns a new instance of a generic cache
 func NewGenericCache(options ...CacheOption) Cache {
 	cache := &genericCache{
-		clock:         clock.New(),
-		maxSize:       math.MaxInt32,
-		data:          map[interface{}]interface{}{},
-		dataWriteTime: map[interface{}]time.Time{},
-		dataReadTime:  map[interface{}]time.Time{},
+		clock:   clock.New(),
+		maxSize: math.MaxInt32,
+		data:    map[interface{}]*cacheEntry{},
 	}
 	for _, option := range options {
 		option(cache)
 	}
 	return cache
+}
+
+func (g *genericCache) isExpired(entry *cacheEntry) bool {
+	if g.expiresAfterRead && entry.lastRead.Add(g.expireAfterRead).Before(g.clock.Now()) {
+		return true
+	}
+	if g.expiresAfterWrite && entry.lastWrite.Add(g.expireAfterWrite).Before(g.clock.Now()) {
+		return true
+	}
+	return false
 }
 
 func (g *genericCache) Get(key interface{}) (interface{}, error) {
@@ -173,27 +190,16 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	}
 	g.dataLock.RUnlock()
 
-	writeTime, exists := g.dataWriteTime[key]
-	if exists && g.clock.Now().After(writeTime.Add(g.expireAfterWrite)) {
+	if g.isExpired(val) {
 		g.concurrentEvict(key, RemovalReasonExpired)
 		val, err := g.load(key)
 		return val, errors.Wrap(err, "")
 	}
-
-	readTime, exists := g.dataReadTime[key]
-	if exists && g.clock.Now().After(readTime.Add(g.expireAfterRead)) {
-		g.concurrentEvict(key, RemovalReasonExpired)
-		val, err := g.load(key)
-		return val, errors.Wrap(err, "")
-	}
-	if g.expireAfterRead > 0 {
-		// It is possible that this will race. It will only be a problem
-		// if the expiry thresholds have to be respected with a high
-		// degree of precision (which is subjective).
-		g.dataReadTime[key] = g.clock.Now()
-	}
-
-	return val, nil
+	// It is possible that this will race. It will only be a problem
+	// if the expiry thresholds have to be respected with a high
+	// degree of precision (which is subjective).
+	val.lastRead = g.clock.Now()
+	return val.value, nil
 }
 
 func (g *genericCache) load(key interface{}) (interface{}, error) {
@@ -236,7 +242,7 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 	}
 	notification := RemovalNotification{
 		Key:    key,
-		Value:  val,
+		Value:  val.value,
 		Reason: reason,
 	}
 	var listenerWg sync.WaitGroup
@@ -263,12 +269,11 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 			break
 		}
 	}
-	g.data[key] = value
-	if g.expireAfterWrite > 0 {
-		g.dataWriteTime[key] = g.clock.Now()
-	}
-	if g.expireAfterRead > 0 {
-		g.dataReadTime[key] = g.clock.Now()
+	g.data[key] = &cacheEntry{
+		key:       key,
+		value:     value,
+		lastRead:  g.clock.Now(),
+		lastWrite: g.clock.Now(),
 	}
 }
 
