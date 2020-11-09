@@ -75,7 +75,7 @@ var noopSetupFunc = func(b *testing.B, cache loadingcache.Cache) {}
 type matrixTestFunc func(b *testing.B, cache loadingcache.Cache)
 
 func cacheMatrix() map[string]loadingcache.Cache {
-	return cacheMatrixWithOptions(loadingcache.CacheOptions)
+	return cacheMatrixWithOptions(loadingcache.CacheOptions{})
 }
 
 func cacheMatrixWithOptions(options loadingcache.CacheOptions) map[string]loadingcache.Cache {
@@ -89,7 +89,7 @@ func cacheMatrixWithOptions(options loadingcache.CacheOptions) map[string]loadin
 		shardedOptions := options
 		shardedOptions.ShardCount = shardCount
 		shardedOptions.HashCodeFunc = intHashCodeFunc
-		matrix[fmt.Sprintf("Sharded (%d)", i)] = loadingcache.New(shardedOptions)
+		matrix[fmt.Sprintf("Sharded (%d)", shardCount)] = loadingcache.New(shardedOptions)
 	}
 	return matrix
 }

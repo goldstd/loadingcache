@@ -99,7 +99,7 @@ func (i *internalImplementation) Get(key string) (int64, error) {
 	}
 	typedVal, ok := val.(int64)
 	if !ok {
-		return loadingcache.ErrTypeMismatch(typedVal, val)
+		panic(loadingcache.ErrTypeMismatch(typedVal, val))
 	}
 	return typedVal, nil
 }

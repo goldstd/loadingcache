@@ -8,7 +8,7 @@ import (
 )
 
 func ExampleAdvancedUsage() {
-	cache := reference.NewCache(reference.CacheOptions{
+	cache := reference.NewTypedCache(reference.CacheOptions{
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,
 		ExpireAfterWrite: time.Minute,

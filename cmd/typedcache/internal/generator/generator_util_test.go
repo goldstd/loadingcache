@@ -50,7 +50,7 @@ type internalImplementation struct {
 	genericCache loadingcache.Cache
 }
 
-func NewCache(options {{.Name}}Options) {{.Name}} {
+func New{{.Name}}(options {{.Name}}Options) {{.Name}} {
 	finalOptions := loadingcache.CacheOptions{
 		Clock:            options.Clock,
 		ExpireAfterWrite: options.ExpireAfterWrite,
@@ -96,7 +96,7 @@ func (i *internalImplementation) Get(key string) (int64, error) {
 	}
 	typedVal, ok := val.(int64)
 	if !ok {
-		return loadingcache.ErrTypeMismatch(typedVal, val)
+		panic(loadingcache.ErrTypeMismatch(typedVal, val))
 	}
 	return typedVal, nil
 }

@@ -160,40 +160,31 @@ func TestExpireAfterRead(t *testing.T) {
 
 func TestLoadFunc(t *testing.T) {
 	loadFunc := &testLoadFunc{}
-	caches := []loadingcache.Cache{
-		loadingcache.New(loadingcache.CacheOptions{
-			Load: loadFunc.LoadFunc,
-		}),
-		loadingcache.New(loadingcache.CacheOptions{
-			Load:         loadFunc.LoadFunc,
-			ShardCount:   3,
-			HashCodeFunc: stringHashCodeFunc,
-		}),
-	}
-	for _, cache := range caches {
-		// Getting a value that does not exist should load it
-		val, err := cache.Get("a")
-		require.NoError(t, err)
-		require.Equal(t, "a", val)
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		Load: loadFunc.LoadFunc,
+	})
+	// Getting a value that does not exist should load it
+	val, err := cache.Get("a")
+	require.NoError(t, err)
+	require.Equal(t, "a", val)
 
-		// Getting a value that the loader fails to error should propagate the error
-		loadFunc.fail = true
-		_, err = cache.Get("b")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failing on request")
+	// Getting a value that the loader fails to error should propagate the error
+	loadFunc.fail = true
+	_, err = cache.Get("b")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failing on request")
 
-		// Adding the value manually should succeeed
-		cache.Put("b", "true")
-		val, err = cache.Get("b")
-		require.NoError(t, err)
-		require.Equal(t, "true", val)
+	// Adding the value manually should succeeed
+	cache.Put("b", "true")
+	val, err = cache.Get("b")
+	require.NoError(t, err)
+	require.Equal(t, "true", val)
 
-		// After invalidating, getting should fail again
-		cache.Invalidate("b")
-		_, err = cache.Get("b")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failing on request")
-	}
+	// After invalidating, getting should fail again
+	cache.Invalidate("b")
+	_, err = cache.Get("b")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failing on request")
 }
 
 func TestMaxSize(t *testing.T) {
