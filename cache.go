@@ -277,9 +277,20 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 	}
 }
 
+// preWriteCleanup does a pass through all entries to assess if any are expired
+// and should be removed
+func (g *genericCache) preWriteCleanup() {
+	for key := range g.data {
+		if g.isExpired(g.data[key]) {
+			g.evict(key, RemovalReasonExpired)
+		}
+	}
+}
+
 func (g *genericCache) Put(key interface{}, value interface{}) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
+	g.preWriteCleanup()
 	if _, exists := g.data[key]; exists {
 		g.evict(key, RemovalReasonReplaced)
 	}
