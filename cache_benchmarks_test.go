@@ -7,7 +7,7 @@ import (
 )
 
 func BenchmarkGetMiss(b *testing.B) {
-	cache := loadingcache.NewGenericCache()
+	cache := loadingcache.New(loadingcache.CacheOptions{})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cache.Get("a")
@@ -15,7 +15,7 @@ func BenchmarkGetMiss(b *testing.B) {
 }
 
 func BenchmarkGetHit(b *testing.B) {
-	cache := loadingcache.NewGenericCache()
+	cache := loadingcache.New(loadingcache.CacheOptions{})
 	cache.Put("a", 1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -24,7 +24,7 @@ func BenchmarkGetHit(b *testing.B) {
 }
 
 func BenchmarkPutNew(b *testing.B) {
-	cache := loadingcache.NewGenericCache()
+	cache := loadingcache.New(loadingcache.CacheOptions{})
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cache.Put(i, 1)
@@ -32,7 +32,7 @@ func BenchmarkPutNew(b *testing.B) {
 }
 
 func BenchmarkPutReplace(b *testing.B) {
-	cache := loadingcache.NewGenericCache()
+	cache := loadingcache.New(loadingcache.CacheOptions{})
 	cache.Put("a", 1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -41,9 +41,9 @@ func BenchmarkPutReplace(b *testing.B) {
 }
 
 func BenchmarkPutAtMaxSize(b *testing.B) {
-	cache := loadingcache.NewGenericCache(
-		loadingcache.MaxSize(1),
-	)
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		MaxSize: 1,
+	})
 	cache.Put("a", 1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -9,7 +9,7 @@ import (
 )
 
 func ExampleSimpleUsage() {
-	cache := loadingcache.NewGenericCache()
+	cache := loadingcache.New(loadingcache.CacheOptions{})
 
 	// Addign some values and reading them
 	cache.Put("a", 1)
@@ -37,18 +37,20 @@ func ExampleSimpleUsage() {
 }
 
 func ExampleAdvancedUsage() {
-	cache := loadingcache.NewGenericCache(
-		loadingcache.MaxSize(2),
-		loadingcache.ExpireAfterRead(2*time.Minute),
-		loadingcache.ExpireAfterWrite(time.Minute),
-		loadingcache.RemovalListener(func(notification loadingcache.RemovalNotification) {
-			fmt.Printf("Entry removed due to %s\n", notification.Reason)
-		}),
-		loadingcache.Load(func(key interface{}) (interface{}, error) {
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		MaxSize:          2,
+		ExpireAfterRead:  2 * time.Minute,
+		ExpireAfterWrite: time.Minute,
+		RemovalListeners: []loadingcache.RemovalListener{
+			func(notification loadingcache.RemovalNotification) {
+				fmt.Printf("Entry removed due to %s\n", notification.Reason)
+			},
+		},
+		Load: func(key interface{}) (interface{}, error) {
 			fmt.Printf("Loading key %v\n", key)
 			return fmt.Sprint(key), nil
-		}),
-	)
+		},
+	})
 
 	cache.Put(1, "1")
 	val1, _ := cache.Get(1)

@@ -1,8 +1,6 @@
 package loadingcache
 
 import (
-	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -39,8 +37,8 @@ type RemovalNotification struct {
 	Reason RemovalReason
 }
 
-// RemovalListenerFunc represents a removal listener
-type RemovalListenerFunc func(RemovalNotification)
+// RemovalListener represents a removal listener
+type RemovalListener func(RemovalNotification)
 
 // Cache describe the base interface to interact with a generic cache.
 //
@@ -63,88 +61,53 @@ type Cache interface {
 	InvalidateAll()
 }
 
+// CacheOptions available options to initialize the cache
+type CacheOptions struct {
+	// Clock allows passing a custom clock to be used with the cache.
+	//
+	// This is useful for testing, where controlling time is important.
+	Clock clock.Clock
+
+	// ExpireAfterWrite configures the cache to expire entries after
+	// a given duration after writing.
+	ExpireAfterWrite time.Duration
+
+	// ExpireAfterRead configures the cache to expire entries after
+	// a given duration after reading.
+	ExpireAfterRead time.Duration
+
+	// Load configures a loading function
+	Load LoadFunc
+
+	// MaxSize limits the number of entries allowed in the cache.
+	// If the limit is achieved, an eviction process will take place,
+	// this means that eviction policies will be executed such as write
+	// time, read time or random entry if no evection policy frees up
+	// space.
+	MaxSize int32
+
+	// RemovalListeners configures a removal listeners
+	RemovalListeners []RemovalListener
+}
+
+func (c CacheOptions) expiresAfterRead() bool {
+	return c.ExpireAfterRead > 0
+}
+
+func (c CacheOptions) expiresAfterWrite() bool {
+	return c.ExpireAfterWrite > 0
+}
+
 // CacheOption describes an option that can configure the cache
 type CacheOption func(Cache)
 
 // LoadFunc represents a function that given a key, it returns a value or an error.
 type LoadFunc func(interface{}) (interface{}, error)
 
-// cast converts Cache to *genericCache or panics if it fails
-func cast(cache Cache) *genericCache {
-	c, ok := cache.(*genericCache)
-	if !ok {
-		panic(fmt.Sprintf("unexpected implementation of Cache %T", cache))
-	}
-	return c
-}
-
-// Clock allows passing a custom clock to be used with the cache.
-//
-// This is useful for testing, where controlling time is important.
-func Clock(clk clock.Clock) CacheOption {
-	return func(cache Cache) {
-		cast(cache).clock = clk
-	}
-}
-
-// ExpireAfterWrite configures the cache to expire entries after
-// a given duration after writing.
-func ExpireAfterWrite(duration time.Duration) CacheOption {
-	return func(cache Cache) {
-		cast(cache).expireAfterWrite = duration
-		cast(cache).expiresAfterWrite = true
-	}
-}
-
-// ExpireAfterRead configures the cache to expire entries after
-// a given duration after reading.
-func ExpireAfterRead(duration time.Duration) CacheOption {
-	return func(cache Cache) {
-		cast(cache).expireAfterRead = duration
-		cast(cache).expiresAfterRead = true
-	}
-}
-
-// Load configures a loading function
-func Load(f LoadFunc) CacheOption {
-	return func(cache Cache) {
-		cast(cache).loadFunc = f
-	}
-}
-
-// MaxSize limits the number of entries allowed in the cache.
-// If the limit is achieved, an eviction process will take place,
-// this means that eviction policies will be executed such as write
-// time, read time or random entry if no evection policy frees up
-// space.
-func MaxSize(maxSize int32) CacheOption {
-	return func(cache Cache) {
-		cast(cache).maxSize = maxSize
-	}
-}
-
-// RemovalListener adds a removal listener
-func RemovalListener(listener RemovalListenerFunc) CacheOption {
-	return func(cache Cache) {
-		g := cast(cache)
-		g.removalListeners = append(g.removalListeners, listener)
-	}
-}
-
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
-	clock    clock.Clock
-	loadFunc LoadFunc
-	maxSize  int32
-
-	removalListeners []RemovalListenerFunc
-
-	expireAfterWrite  time.Duration
-	expiresAfterWrite bool
-
-	expireAfterRead  time.Duration
-	expiresAfterRead bool
+	CacheOptions
 
 	data     map[interface{}]*cacheEntry
 	dataLock sync.RWMutex
@@ -157,24 +120,23 @@ type cacheEntry struct {
 	lastWrite time.Time
 }
 
-// NewGenericCache returns a new instance of a generic cache
-func NewGenericCache(options ...CacheOption) Cache {
-	cache := &genericCache{
-		clock:   clock.New(),
-		maxSize: math.MaxInt32,
-		data:    map[interface{}]*cacheEntry{},
+// New instantiates a new cache
+func New(options CacheOptions) Cache {
+	if options.Clock == nil {
+		options.Clock = clock.New()
 	}
-	for _, option := range options {
-		option(cache)
+	cache := &genericCache{
+		CacheOptions: options,
+		data:         map[interface{}]*cacheEntry{},
 	}
 	return cache
 }
 
 func (g *genericCache) isExpired(entry *cacheEntry) bool {
-	if g.expiresAfterRead && entry.lastRead.Add(g.expireAfterRead).Before(g.clock.Now()) {
+	if g.expiresAfterRead() && entry.lastRead.Add(g.ExpireAfterRead).Before(g.Clock.Now()) {
 		return true
 	}
-	if g.expiresAfterWrite && entry.lastWrite.Add(g.expireAfterWrite).Before(g.clock.Now()) {
+	if g.expiresAfterWrite() && entry.lastWrite.Add(g.ExpireAfterWrite).Before(g.Clock.Now()) {
 		return true
 	}
 	return false
@@ -198,14 +160,14 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	// It is possible that this will race. It will only be a problem
 	// if the expiry thresholds have to be respected with a high
 	// degree of precision (which is subjective).
-	val.lastRead = g.clock.Now()
+	val.lastRead = g.Clock.Now()
 	return val.value, nil
 }
 
 func (g *genericCache) load(key interface{}) (interface{}, error) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
-	if g.loadFunc == nil {
+	if g.Load == nil {
 		return nil, ErrKeyNotFound
 	}
 
@@ -216,7 +178,7 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 		return val, nil
 	}
 
-	val, err := g.loadFunc(key)
+	val, err := g.Load(key)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to load key %v", key)
 	}
@@ -237,7 +199,7 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 	}
 	delete(g.data, key)
 
-	if len(g.removalListeners) == 0 {
+	if len(g.RemovalListeners) == 0 {
 		return
 	}
 	notification := RemovalNotification{
@@ -246,9 +208,9 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 		Reason: reason,
 	}
 	var listenerWg sync.WaitGroup
-	listenerWg.Add(len(g.removalListeners))
-	for i := range g.removalListeners {
-		listener := g.removalListeners[i]
+	listenerWg.Add(len(g.RemovalListeners))
+	for i := range g.RemovalListeners {
+		listener := g.RemovalListeners[i]
 		go func() {
 			defer listenerWg.Done()
 			listener(notification)
@@ -260,7 +222,7 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 // internalPut actually saves the values into the internal structures.
 // It does not handle any synchronization, leaving that to the caller.
 func (g *genericCache) internalPut(key interface{}, value interface{}) {
-	if int32(len(g.data)) >= g.maxSize {
+	if g.MaxSize > 0 && int32(len(g.data)) >= g.MaxSize {
 		// If eviction is needed it currently removes a random entry,
 		// since maps do not have a deterministic order.
 		// TODO: Apply smarter eviction policies if available
@@ -272,8 +234,8 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 	g.data[key] = &cacheEntry{
 		key:       key,
 		value:     value,
-		lastRead:  g.clock.Now(),
-		lastWrite: g.clock.Now(),
+		lastRead:  g.Clock.Now(),
+		lastWrite: g.Clock.Now(),
 	}
 }
 

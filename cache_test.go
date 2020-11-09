@@ -12,7 +12,7 @@ import (
 )
 
 func TestBasicMethods(t *testing.T) {
-	cache := loadingcache.NewGenericCache()
+	cache := loadingcache.New(loadingcache.CacheOptions{})
 	require.NotNil(t, cache)
 
 	// Getting a key that does not exist should error
@@ -70,10 +70,10 @@ func TestBasicMethods(t *testing.T) {
 
 func TestExpireAfterWrite(t *testing.T) {
 	mockClock := clock.NewMock()
-	cache := loadingcache.NewGenericCache(
-		loadingcache.Clock(mockClock),
-		loadingcache.ExpireAfterWrite(time.Minute),
-	)
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		Clock:            mockClock,
+		ExpireAfterWrite: time.Minute,
+	})
 	cache.Put("a", 1)
 	val, err := cache.Get("a")
 	require.NoError(t, err)
@@ -96,10 +96,10 @@ func TestExpireAfterWrite(t *testing.T) {
 
 func TestExpireAfterRead(t *testing.T) {
 	mockClock := clock.NewMock()
-	cache := loadingcache.NewGenericCache(
-		loadingcache.Clock(mockClock),
-		loadingcache.ExpireAfterRead(time.Minute),
-	)
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		Clock:           mockClock,
+		ExpireAfterRead: time.Minute,
+	})
 	cache.Put("a", 1)
 	val, err := cache.Get("a")
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestExpireAfterRead(t *testing.T) {
 
 func TestLoadFunc(t *testing.T) {
 	loadFunc := &testLoadFunc{}
-	cache := loadingcache.NewGenericCache(loadingcache.Load(loadFunc.LoadFunc))
+	cache := loadingcache.New(loadingcache.CacheOptions{Load: loadFunc.LoadFunc})
 
 	// Getting a value that does not exist should load it
 	val, err := cache.Get("a")
@@ -158,7 +158,7 @@ func TestLoadFunc(t *testing.T) {
 }
 
 func TestMaxSize(t *testing.T) {
-	cache := loadingcache.NewGenericCache(loadingcache.MaxSize(1))
+	cache := loadingcache.New(loadingcache.CacheOptions{MaxSize: 1})
 
 	// With a capacity of one element, adding a second element
 	// should remove the first
@@ -178,14 +178,13 @@ func TestRemovalListeners(t *testing.T) {
 	mockClock := clock.NewMock()
 	removalListener := &testRemovalListener{}
 	removalListener2 := &testRemovalListener{}
-	cache := loadingcache.NewGenericCache(
-		loadingcache.Clock(mockClock),
-		loadingcache.ExpireAfterRead(time.Minute),
-		loadingcache.ExpireAfterWrite(2*time.Minute),
-		loadingcache.MaxSize(1),
-		loadingcache.RemovalListener(removalListener.Listener),
-		loadingcache.RemovalListener(removalListener2.Listener),
-	)
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		Clock:            mockClock,
+		ExpireAfterRead:  time.Minute,
+		ExpireAfterWrite: 2 * time.Minute,
+		MaxSize:          1,
+		RemovalListeners: []loadingcache.RemovalListener{removalListener.Listener, removalListener2.Listener},
+	})
 
 	// Removal due to replacement
 	cache.Put("a", 10)
