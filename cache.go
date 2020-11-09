@@ -174,7 +174,10 @@ func (s *shardedCache) Put(key interface{}, value interface{}) {
 }
 
 func (s *shardedCache) Invalidate(key interface{}, keys ...interface{}) {
-	s.shards[s.HashCodeFunc(key)%len(s.shards)].Invalidate(key, keys...)
+	s.shards[s.HashCodeFunc(key)%len(s.shards)].Invalidate(key)
+	for _, k := range keys {
+		s.shards[s.HashCodeFunc(k)%len(s.shards)].Invalidate(k)
+	}
 }
 
 func (s *shardedCache) InvalidateAll() {
