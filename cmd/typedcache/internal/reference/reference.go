@@ -7,6 +7,7 @@
 package reference
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Hartimer/loadingcache"
@@ -99,7 +100,7 @@ func (i *internalImplementation) Get(key string) (int64, error) {
 	}
 	typedVal, ok := val.(int64)
 	if !ok {
-		panic(loadingcache.ErrTypeMismatch(typedVal, val))
+		panic(fmt.Sprintf("Type mismatch, expected %T got %T", typedVal, val))
 	}
 	return typedVal, nil
 }

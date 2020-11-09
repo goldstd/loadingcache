@@ -1,7 +1,6 @@
 package loadingcache
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,11 +10,6 @@ import (
 
 // ErrKeyNotFound represents an error indicating that the key was not found
 var ErrKeyNotFound error = errors.New("Key not found")
-
-// ErrTypeMismatch represents an error indicating that the types do not match
-func ErrTypeMismatch(expected interface{}, observed interface{}) error {
-	return errors.New(fmt.Sprintf("Type mismatch, expected %T got %T", expected, observed))
-}
 
 // RemovalReason is an enum describing the causes for an entry to
 // be removed from the cache.
