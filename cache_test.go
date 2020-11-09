@@ -1,8 +1,6 @@
 package loadingcache_test
 
 import (
-	"fmt"
-	"hash/fnv"
 	"testing"
 	"time"
 
@@ -296,33 +294,4 @@ func TestRemovalListeners(t *testing.T) {
 		require.Equal(t, "b", lastNotification.Key)
 		require.Equal(t, 3, lastNotification.Value)
 	}
-}
-
-type testRemovalListener struct {
-	lastRemovalNotification loadingcache.RemovalNotification
-}
-
-func (t *testRemovalListener) Listener(notification loadingcache.RemovalNotification) {
-	t.lastRemovalNotification = notification
-}
-
-// testLoadFunc provides a configurable loading function that may fail
-type testLoadFunc struct {
-	fail bool
-}
-
-func (t *testLoadFunc) LoadFunc(key interface{}) (interface{}, error) {
-	if t.fail {
-		return nil, errors.New("failing on request")
-	}
-	return fmt.Sprint(key), nil
-}
-
-var stringHashCodeFunc = func(k interface{}) int {
-	if s, ok := k.(string); ok {
-		h := fnv.New32a()
-		h.Write([]byte(s))
-		return int(h.Sum32())
-	}
-	return -1
 }
