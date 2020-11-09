@@ -23,6 +23,18 @@ func BenchmarkGetHit(b *testing.B) {
 	}
 }
 
+func BenchmarkGetShardedHit(b *testing.B) {
+	cache := loadingcache.New(loadingcache.CacheOptions{
+		ShardCount:   3,
+		HashCodeFunc: stringHashCodeFunc,
+	})
+	cache.Put("a", 1)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cache.Get("a")
+	}
+}
+
 func BenchmarkPutNew(b *testing.B) {
 	cache := loadingcache.New(loadingcache.CacheOptions{})
 	b.ResetTimer()

@@ -88,6 +88,9 @@ type CacheOptions struct {
 
 	// RemovalListeners configures a removal listeners
 	RemovalListeners []RemovalListener
+
+	ShardCount   int
+	HashCodeFunc func(key interface{}) int
 }
 
 func (c CacheOptions) expiresAfterRead() bool {
@@ -104,15 +107,6 @@ type CacheOption func(Cache)
 // LoadFunc represents a function that given a key, it returns a value or an error.
 type LoadFunc func(interface{}) (interface{}, error)
 
-// genericCache is an implementation of a cache where keys and values are
-// of type interface{}
-type genericCache struct {
-	CacheOptions
-
-	data     map[interface{}]*cacheEntry
-	dataLock sync.RWMutex
-}
-
 type cacheEntry struct {
 	key       interface{}
 	value     interface{}
@@ -125,11 +119,71 @@ func New(options CacheOptions) Cache {
 	if options.Clock == nil {
 		options.Clock = clock.New()
 	}
+
+	if options.ShardCount < 0 {
+		panic("shard count must be non-negative")
+	}
+	switch options.ShardCount {
+	case 0, 1:
+		return &genericCache{
+			CacheOptions: options,
+			data:         map[interface{}]*cacheEntry{},
+		}
+	default:
+		if options.HashCodeFunc == nil {
+			panic("cannot have a sharded cache without a hashcode function")
+		}
+		s := &shardedCache{
+			CacheOptions: options,
+			shards:       make([]*genericCache, options.ShardCount),
+		}
+		for i := 0; i < options.ShardCount; i++ {
+			s.shards[i] = &genericCache{
+				CacheOptions: options,
+				data:         map[interface{}]*cacheEntry{},
+			}
+		}
+		return s
+	}
+
 	cache := &genericCache{
 		CacheOptions: options,
 		data:         map[interface{}]*cacheEntry{},
 	}
 	return cache
+}
+
+type shardedCache struct {
+	CacheOptions
+	shards []*genericCache
+}
+
+func (s *shardedCache) Get(key interface{}) (interface{}, error) {
+	val, err := s.shards[s.HashCodeFunc(key)%len(s.shards)].Get(key)
+	return val, errors.Wrap(err, "")
+}
+
+func (s *shardedCache) Put(key interface{}, value interface{}) {
+	s.shards[s.HashCodeFunc(key)%len(s.shards)].Put(key, value)
+}
+
+func (s *shardedCache) Invalidate(key interface{}, keys ...interface{}) {
+	s.shards[s.HashCodeFunc(key)%len(s.shards)].Invalidate(key, keys...)
+}
+
+func (s *shardedCache) InvalidateAll() {
+	for _, shard := range s.shards {
+		shard.InvalidateAll()
+	}
+}
+
+// genericCache is an implementation of a cache where keys and values are
+// of type interface{}
+type genericCache struct {
+	CacheOptions
+
+	data     map[interface{}]*cacheEntry
+	dataLock sync.RWMutex
 }
 
 func (g *genericCache) isExpired(entry *cacheEntry) bool {
