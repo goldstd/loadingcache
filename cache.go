@@ -1,6 +1,7 @@
 package loadingcache
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -68,14 +69,21 @@ type CacheOption func(Cache)
 // LoadFunc represents a function that given a key, it returns a value or an error.
 type LoadFunc func(interface{}) (interface{}, error)
 
+// cast converts Cache to *genericCache or panics if it fails
+func cast(cache Cache) *genericCache {
+	c, ok := cache.(*genericCache)
+	if !ok {
+		panic(fmt.Sprintf("unexpected implementation of Cache %T", cache))
+	}
+	return c
+}
+
 // Clock allows passing a custom clock to be used with the cache.
 //
 // This is useful for testing, where controlling time is important.
 func Clock(clk clock.Clock) CacheOption {
 	return func(cache Cache) {
-		if g, ok := cache.(*genericCache); ok {
-			g.clock = clk
-		}
+		cast(cache).clock = clk
 	}
 }
 
@@ -83,9 +91,7 @@ func Clock(clk clock.Clock) CacheOption {
 // a given duration after writing.
 func ExpireAfterWrite(duration time.Duration) CacheOption {
 	return func(cache Cache) {
-		if g, ok := cache.(*genericCache); ok {
-			g.expireAfterWrite = duration
-		}
+		cast(cache).expireAfterWrite = duration
 	}
 }
 
@@ -93,18 +99,14 @@ func ExpireAfterWrite(duration time.Duration) CacheOption {
 // a given duration after reading.
 func ExpireAfterRead(duration time.Duration) CacheOption {
 	return func(cache Cache) {
-		if g, ok := cache.(*genericCache); ok {
-			g.expireAfterRead = duration
-		}
+		cast(cache).expireAfterRead = duration
 	}
 }
 
 // Load configures a loading function
 func Load(f LoadFunc) CacheOption {
 	return func(cache Cache) {
-		if g, ok := cache.(*genericCache); ok {
-			g.loadFunc = f
-		}
+		cast(cache).loadFunc = f
 	}
 }
 
@@ -115,18 +117,15 @@ func Load(f LoadFunc) CacheOption {
 // space.
 func MaxSize(maxSize int32) CacheOption {
 	return func(cache Cache) {
-		if g, ok := cache.(*genericCache); ok {
-			g.maxSize = maxSize
-		}
+		cast(cache).maxSize = maxSize
 	}
 }
 
 // RemovalListener adds a removal listener
 func RemovalListener(listener RemovalListenerFunc) CacheOption {
 	return func(cache Cache) {
-		if g, ok := cache.(*genericCache); ok {
-			g.removalListeners = append(g.removalListeners, listener)
-		}
+		g := cast(cache)
+		g.removalListeners = append(g.removalListeners, listener)
 	}
 }
 
