@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func ExampleSimpleUsage() {
+func ExampleCache_simpleUsage() {
 	cache := loadingcache.New(loadingcache.CacheOptions{})
 
 	// Addign some values and reading them
@@ -36,7 +36,7 @@ func ExampleSimpleUsage() {
 	// That key does not exist
 }
 
-func ExampleAdvancedUsage() {
+func ExampleCache_advancedUsage() {
 	cache := loadingcache.New(loadingcache.CacheOptions{
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,

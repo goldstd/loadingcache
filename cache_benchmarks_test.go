@@ -9,7 +9,10 @@ import (
 func BenchmarkGetMiss(b *testing.B) {
 	matrixBenchmark(b, noopBenchmarkSetupFunc, func(b *testing.B, cache loadingcache.Cache) {
 		for i := 0; i < b.N; i++ {
-			cache.Get(i)
+			_, err := cache.Get(i)
+			if err != nil {
+				panic(err)
+			}
 		}
 	})
 }
@@ -21,7 +24,10 @@ func BenchmarkGetHit(b *testing.B) {
 		},
 		func(b *testing.B, cache loadingcache.Cache) {
 			for i := 0; i < b.N; i++ {
-				cache.Get(1)
+				_, err := cache.Get(1)
+				if err != nil {
+					panic(err)
+				}
 			}
 		})
 }

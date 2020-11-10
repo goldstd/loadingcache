@@ -32,7 +32,9 @@ func (t *testLoadFunc) LoadFunc(key interface{}) (interface{}, error) {
 // stringHashCodeFunc is a test hash code function for strings which uses fnv.New32a
 var stringHashCodeFunc = func(k interface{}) int {
 	h := fnv.New32a()
-	h.Write([]byte(k.(string)))
+	if _, err := h.Write([]byte(k.(string))); err != nil {
+		panic(err)
+	}
 	return int(h.Sum32())
 }
 
@@ -73,14 +75,10 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 	}
 }
 
-type matrixTestSetupFunc func(t *testing.T, cache loadingcache.Cache)
-
 type matrixTestOptions struct {
 	cacheOptions loadingcache.CacheOptions
 	setupFunc    func(t *testing.T, cache loadingcache.Cache)
 }
-
-var noopTestSetupFunc = func(t *testing.T, cache loadingcache.Cache) {}
 
 type matrixTestFunc func(t *testing.T, cache loadingcache.Cache)
 

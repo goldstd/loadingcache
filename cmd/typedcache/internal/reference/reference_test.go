@@ -7,7 +7,7 @@ import (
 	"github.com/Hartimer/loadingcache/cmd/typedcache/internal/reference"
 )
 
-func ExampleAdvancedUsage() {
+func ExampleTypedCache() {
 	cache := reference.NewTypedCache(reference.CacheOptions{
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,
