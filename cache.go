@@ -59,6 +59,9 @@ type Cache interface {
 
 	// InvalidateAll invalidates all keys
 	InvalidateAll()
+
+	// Close cleans up any resources used by the cache
+	Close()
 }
 
 // CacheOptions available options to initialize the cache
@@ -101,6 +104,13 @@ type CacheOptions struct {
 	// See https://docs.oracle.com/en/java/javase/15/docs/api/java.base/java/lang/Object.html#hashCode()
 	// for best practices surrounding hash code functions.
 	HashCodeFunc func(key interface{}) int
+
+	// BackgroundEvict controls if a background go routine should be created
+	// which automatically evicts entries that have expired.
+	//
+	// The background go routine runs every 10 seconds.
+	// To avoid go routine leaks, use the close function.
+	BackgroundEvict bool
 }
 
 func (c CacheOptions) expiresAfterRead() bool {
@@ -135,23 +145,27 @@ func New(options CacheOptions) Cache {
 	}
 	switch options.ShardCount {
 	case 0, 1:
-		return &genericCache{
+		c := &genericCache{
 			CacheOptions: options,
 			data:         map[interface{}]*cacheEntry{},
+			done:         make(chan struct{}),
 		}
+		if options.BackgroundEvict {
+			go c.runBackgroundEvict()
+		}
+		return c
 	default:
 		if options.HashCodeFunc == nil {
 			panic("cannot have a sharded cache without a hashcode function")
 		}
+		singleShardOptions := options
+		singleShardOptions.ShardCount = 1
 		s := &shardedCache{
 			CacheOptions: options,
-			shards:       make([]*genericCache, options.ShardCount),
+			shards:       make([]Cache, options.ShardCount),
 		}
 		for i := 0; i < options.ShardCount; i++ {
-			s.shards[i] = &genericCache{
-				CacheOptions: options,
-				data:         map[interface{}]*cacheEntry{},
-			}
+			s.shards[i] = New(singleShardOptions)
 		}
 		return s
 	}
@@ -159,7 +173,7 @@ func New(options CacheOptions) Cache {
 
 type shardedCache struct {
 	CacheOptions
-	shards []*genericCache
+	shards []Cache
 }
 
 func (s *shardedCache) Get(key interface{}) (interface{}, error) {
@@ -184,6 +198,12 @@ func (s *shardedCache) InvalidateAll() {
 	}
 }
 
+func (s *shardedCache) Close() {
+	for _, shard := range s.shards {
+		shard.Close()
+	}
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
@@ -191,6 +211,8 @@ type genericCache struct {
 
 	data     map[interface{}]*cacheEntry
 	dataLock sync.RWMutex
+
+	done chan struct{}
 }
 
 func (g *genericCache) isExpired(entry *cacheEntry) bool {
@@ -251,6 +273,45 @@ func (g *genericCache) concurrentEvict(key interface{}, reason RemovalReason) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 	g.evict(key, reason)
+}
+
+func (g *genericCache) runBackgroundEvict() {
+	ticker := g.Clock.Ticker(10 * time.Second)
+	for {
+		select {
+		case <-g.done:
+			return
+		case <-ticker.C:
+			g.backgroundEvict()
+		}
+	}
+}
+
+// backgroundEvict performs a scan of the cache in search for expired entries
+// and evicts them
+func (g *genericCache) backgroundEvict() {
+	// Get all expired keys. We don't use any locks so it's possible we'll look
+	// at outdated information.
+
+	var possibleExpiredEntries []*cacheEntry
+	for key := range g.data {
+		value := g.data[key]
+		if g.isExpired(value) {
+			possibleExpiredEntries = append(possibleExpiredEntries, value)
+		}
+	}
+
+	if len(possibleExpiredEntries) > 0 {
+		g.dataLock.Lock()
+		defer g.dataLock.Unlock()
+		for _, possibleEntry := range possibleExpiredEntries {
+			// Since things may have changed since we collected the key, double check
+			// if it is still expired
+			if entry, exists := g.data[possibleEntry.key]; exists && g.isExpired(entry) {
+				g.evict(entry.key, RemovalReasonExpired)
+			}
+		}
+	}
 }
 
 func (g *genericCache) evict(key interface{}, reason RemovalReason) {
@@ -335,4 +396,8 @@ func (g *genericCache) InvalidateAll() {
 	for key := range g.data {
 		delete(g.data, key)
 	}
+}
+
+func (g *genericCache) Close() {
+	close(g.done)
 }

@@ -272,3 +272,42 @@ func TestRemovalListeners(t *testing.T) {
 			require.Equal(t, 3, lastNotification.Value)
 		})
 }
+
+func TestBackgroudEvict(t *testing.T) {
+	mockClock := clock.NewMock()
+	matrixTest(t, matrixTestOptions{
+		cacheOptions: loadingcache.CacheOptions{
+			Clock:            mockClock,
+			ExpireAfterWrite: 20 * time.Second,
+			BackgroundEvict:  true,
+		},
+	},
+		func(t *testing.T, cache loadingcache.Cache) {
+
+			// Add an item
+			cache.Put(1, "a")
+
+			// Advance 10 seconds, which should call the backgroud evicter
+			mockClock.Add(10 * time.Second)
+
+			// The value should still be there
+			_, err := cache.Get(1)
+			require.NoError(t, err)
+
+			// Moving the clock past the write threshold
+			mockClock.Add(10 * time.Second)
+
+			// Since background eviction runs in a go routine, we
+			// can only guess when it'll be done.
+			// Let's try getting an error for 500ms
+			for i := 0; i < 50; i++ {
+				_, err = cache.Get(1)
+				if err != nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			require.Error(t, err)
+			require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
+		})
+}
