@@ -1,6 +1,7 @@
 package loadingcache_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -275,14 +276,21 @@ func TestRemovalListeners(t *testing.T) {
 
 func TestBackgroudEvict(t *testing.T) {
 	mockClock := clock.NewMock()
+	var removalWg sync.WaitGroup
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.CacheOptions{
 			Clock:            mockClock,
 			ExpireAfterWrite: 20 * time.Second,
 			BackgroundEvict:  true,
+			RemovalListeners: []loadingcache.RemovalListener{func(notification loadingcache.RemovalNotification) {
+				if notification.Reason == loadingcache.RemovalReasonExpired {
+					removalWg.Done()
+				}
+			}},
 		},
 	},
 		func(t *testing.T, cache loadingcache.Cache) {
+			removalWg.Add(1)
 			// Add an item
 			cache.Put(1, "a")
 
@@ -294,19 +302,13 @@ func TestBackgroudEvict(t *testing.T) {
 			require.NoError(t, err)
 
 			// Moving the clock past the write threshold
-			// TODO: Added an extra second otherwise the ticker wouldn't trigger
-			mockClock.Add(11 * time.Second)
+			// TODO: Had to add double the time for the second ticker to trigger, unclear why
+			mockClock.Add(20 * time.Second)
 
-			// Since background eviction runs in a go routine, we
-			// can only guess when it'll be done.
-			// Let's try getting an error for 500ms
-			for i := 0; i < 50; i++ {
-				_, err = cache.Get(1)
-				if err != nil {
-					break
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+			// Waiting for the removal listener to acknowledge that the entry was evicted
+			removalWg.Wait()
+
+			_, err = cache.Get(1)
 			require.Error(t, err)
 			require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 		})
