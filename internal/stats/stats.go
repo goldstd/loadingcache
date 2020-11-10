@@ -149,10 +149,10 @@ func (s *InternalStats) AverageLoadPenalty() time.Duration {
 
 // Add adds up two stats stores
 func (s *InternalStats) Add(s2 *InternalStats) *InternalStats {
-	s.statsLock.Lock()
-	defer s.statsLock.Unlock()
-	s2.statsLock.Lock()
-	defer s2.statsLock.Unlock()
+	s.statsLock.RLock()
+	defer s.statsLock.RUnlock()
+	s2.statsLock.RLock()
+	defer s2.statsLock.RUnlock()
 	return &InternalStats{
 		evictionCount:    s.evictionCount + s2.evictionCount,
 		hitCount:         s.hitCount + s2.hitCount,

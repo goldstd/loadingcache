@@ -6,6 +6,10 @@ test: generate
 	@echo 'Running all tests...'
 	go test github.com/Hartimer/loadingcache/... -timeout 5s -count 1
 
+bench:
+	@echo 'Running all benchmarks...'
+	go test -benchmem -bench .
+
 test-race:
 	# Does not run on arm processors. See https://github.com/golang/go/issues/25682
 	@echo 'Running all tests with race detection...'
