@@ -1,9 +1,11 @@
 package loadingcache
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/Hartimer/loadingcache/internal/stats"
 	"github.com/benbjohnson/clock"
 	"github.com/pkg/errors"
 )
@@ -62,6 +64,9 @@ type Cache interface {
 
 	// Close cleans up any resources used by the cache
 	Close()
+
+	// Stats returns the curret stats
+	Stats() Stats
 }
 
 // CacheOptions available options to initialize the cache
@@ -150,6 +155,7 @@ func New(options CacheOptions) Cache {
 			CacheOptions: options,
 			data:         map[interface{}]*cacheEntry{},
 			done:         make(chan struct{}),
+			stats:        &stats.InternalStats{},
 		}
 		if options.BackgroundEvict {
 			c.backgroundWg.Add(1)
@@ -206,6 +212,20 @@ func (s *shardedCache) Close() {
 	}
 }
 
+func (s *shardedCache) Stats() Stats {
+	statsSum := &stats.InternalStats{}
+	for _, shard := range s.shards {
+		switch typedCache := shard.(type) {
+		case *genericCache:
+			statsSum = statsSum.Add(typedCache.stats)
+		default:
+			panic(fmt.Sprintf("unsupported cache type %T", shard))
+		}
+
+	}
+	return statsSum
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type interface{}
 type genericCache struct {
@@ -216,6 +236,8 @@ type genericCache struct {
 
 	done         chan struct{}
 	backgroundWg sync.WaitGroup
+
+	stats *stats.InternalStats
 }
 
 func (g *genericCache) isExpired(entry *cacheEntry) bool {
@@ -232,6 +254,7 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	g.dataLock.RLock()
 	val, exists := g.data[key]
 	if !exists {
+		g.stats.Miss()
 		g.dataLock.RUnlock()
 		val, err := g.load(key)
 		return val, errors.Wrap(err, "")
@@ -239,6 +262,7 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	g.dataLock.RUnlock()
 
 	if g.isExpired(val) {
+		g.stats.Miss()
 		g.concurrentEvict(key, RemovalReasonExpired)
 		val, err := g.load(key)
 		return val, errors.Wrap(err, "")
@@ -247,6 +271,7 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	// if the expiry thresholds have to be respected with a high
 	// degree of precision (which is subjective).
 	val.lastRead = g.Clock.Now()
+	g.stats.Hit()
 	return val.value, nil
 }
 
@@ -261,13 +286,18 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 	// Let's do a double check if that was the case, since we have
 	// the lock.
 	if val, exists := g.data[key]; exists {
+		g.stats.Hit()
 		return val, nil
 	}
 
+	loadStartTime := g.Clock.Now()
 	val, err := g.Load(key)
 	if err != nil {
+		g.stats.LoadError()
 		return nil, errors.Wrapf(err, "failed to load key %v", key)
 	}
+	g.stats.LoadTime(g.Clock.Now().Sub(loadStartTime))
+	g.stats.LoadSuccess()
 	g.internalPut(key, val)
 	return val, nil
 }
@@ -323,6 +353,7 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 	if !exists {
 		return
 	}
+	g.stats.Eviction()
 	delete(g.data, key)
 
 	if len(g.RemovalListeners) == 0 {
@@ -405,4 +436,8 @@ func (g *genericCache) InvalidateAll() {
 func (g *genericCache) Close() {
 	close(g.done)
 	g.backgroundWg.Wait()
+}
+
+func (g *genericCache) Stats() Stats {
+	return g.stats
 }
