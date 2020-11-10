@@ -89,7 +89,17 @@ type CacheOptions struct {
 	// RemovalListeners configures a removal listeners
 	RemovalListeners []RemovalListener
 
-	ShardCount   int
+	// ShardCount indicates how many shards will be used by the cache.
+	// This allows some degree of parallelism in read and writing to the cache.
+	//
+	// If the shard count is greater than 1, then HashCodeFunc must be provided
+	// otherwise the constructor will panic.
+	ShardCount int
+
+	// HashCodeFunc is a function that produces a hashcode of the key.
+	//
+	// See https://docs.oracle.com/en/java/javase/15/docs/api/java.base/java/lang/Object.html#hashCode()
+	// for best practices surrounding hash code functions.
 	HashCodeFunc func(key interface{}) int
 }
 
