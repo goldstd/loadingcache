@@ -7,6 +7,7 @@ import (
 
 	"github.com/Hartimer/loadingcache"
 	"github.com/pkg/errors"
+	"go.uber.org/goleak"
 )
 
 type testRemovalListener struct {
@@ -63,6 +64,7 @@ var noopBenchmarkSetupFunc = func(b *testing.B, cache loadingcache.Cache) {}
 type matrixBenchmarkFunc func(b *testing.B, cache loadingcache.Cache)
 
 func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc) {
+	defer goleak.VerifyNone(t)
 	matrix := cacheMatrixWithOptions(options.cacheOptions)
 	for name := range matrix {
 		cache := matrix[name]
@@ -70,6 +72,7 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 			options.setupFunc(t, cache)
 		}
 		t.Run(name, func(t *testing.T) {
+			defer cache.Close()
 			testFunc(t, cache)
 		})
 	}

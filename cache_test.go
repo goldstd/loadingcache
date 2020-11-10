@@ -283,7 +283,6 @@ func TestBackgroudEvict(t *testing.T) {
 		},
 	},
 		func(t *testing.T, cache loadingcache.Cache) {
-
 			// Add an item
 			cache.Put(1, "a")
 
@@ -295,7 +294,8 @@ func TestBackgroudEvict(t *testing.T) {
 			require.NoError(t, err)
 
 			// Moving the clock past the write threshold
-			mockClock.Add(10 * time.Second)
+			// TODO: Added an extra second otherwise the ticker wouldn't trigger
+			mockClock.Add(11 * time.Second)
 
 			// Since background eviction runs in a go routine, we
 			// can only guess when it'll be done.

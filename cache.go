@@ -143,6 +143,7 @@ func New(options CacheOptions) Cache {
 	if options.ShardCount < 0 {
 		panic("shard count must be non-negative")
 	}
+
 	switch options.ShardCount {
 	case 0, 1:
 		c := &genericCache{
@@ -151,6 +152,7 @@ func New(options CacheOptions) Cache {
 			done:         make(chan struct{}),
 		}
 		if options.BackgroundEvict {
+			c.backgroundWg.Add(1)
 			go c.runBackgroundEvict()
 		}
 		return c
@@ -212,7 +214,8 @@ type genericCache struct {
 	data     map[interface{}]*cacheEntry
 	dataLock sync.RWMutex
 
-	done chan struct{}
+	done         chan struct{}
+	backgroundWg sync.WaitGroup
 }
 
 func (g *genericCache) isExpired(entry *cacheEntry) bool {
@@ -277,6 +280,8 @@ func (g *genericCache) concurrentEvict(key interface{}, reason RemovalReason) {
 
 func (g *genericCache) runBackgroundEvict() {
 	ticker := g.Clock.Ticker(10 * time.Second)
+	defer ticker.Stop()
+	defer g.backgroundWg.Done()
 	for {
 		select {
 		case <-g.done:
@@ -292,7 +297,6 @@ func (g *genericCache) runBackgroundEvict() {
 func (g *genericCache) backgroundEvict() {
 	// Get all expired keys. We don't use any locks so it's possible we'll look
 	// at outdated information.
-
 	var possibleExpiredEntries []*cacheEntry
 	for key := range g.data {
 		value := g.data[key]
@@ -400,4 +404,5 @@ func (g *genericCache) InvalidateAll() {
 
 func (g *genericCache) Close() {
 	close(g.done)
+	g.backgroundWg.Wait()
 }
