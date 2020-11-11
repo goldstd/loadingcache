@@ -158,7 +158,7 @@ func TestLoadFunc(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "failing on request")
 
-			// Adding the value manually should succeeed
+			// Adding the value manually should succeed
 			cache.Put(2, "true")
 			val, err = cache.Get(2)
 			require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestBackgroudEvict(t *testing.T) {
 			// Add an item
 			cache.Put(1, "a")
 
-			// Advance 10 seconds, which should call the backgroud evicter
+			// Advance 10 seconds, which should call the background evicter
 			mockClock.Add(10 * time.Second)
 
 			// The value should still be there

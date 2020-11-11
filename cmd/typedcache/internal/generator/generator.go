@@ -44,15 +44,18 @@ func (t *goType) IsSlice() bool {
 	return strings.HasPrefix(t.Modifiers, "[]")
 }
 
+// expectedPartsCount indicates how many parts we expect there to be after parsing a type string.
+// E.g. []*github.com/import/path.Name
+const expectedPartsCount = 4
+
 var partsRe = regexp.MustCompile(`^([\[\]\*]*)(.*?)(\.\w*)?$`)
-var tmpl = template.Must(template.New("typedCacheTemplate").Parse(typedCacheTemplate))
 
 // parseType converts a string to a richer data structure.
 // It is capable of parsing simple types, like "string" or
 // imported types in the format github.com/import/path.Name.
 func parseType(str string) (*goType, error) {
 	parts := partsRe.FindStringSubmatch(str)
-	if len(parts) != 4 {
+	if len(parts) != expectedPartsCount {
 		return nil, errors.New("type must be in the form []*github.com/import/path.Name")
 	}
 
@@ -132,6 +135,7 @@ func Generate(wd string, name string, keyType string, valueType string) error {
 	filepath := filepath.Join(wd, filename)
 
 	var buf bytes.Buffer
+	tmpl := template.Must(template.New("typedCacheTemplate").Parse(typedCacheTemplate))
 	if err := tmpl.Execute(&buf, tmplValues); err != nil {
 		return errors.Wrap(err, "failed to execute template")
 	}
@@ -139,6 +143,8 @@ func Generate(wd string, name string, keyType string, valueType string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to apply go imports")
 	}
+	// Disabling gosec specifically here since we do want the generated code to be readable
+	//nolint:gosec
 	if err := ioutil.WriteFile(filepath, src, 0644); err != nil {
 		return errors.Wrap(err, "failed to write file")
 	}

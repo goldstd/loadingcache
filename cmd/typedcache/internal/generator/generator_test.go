@@ -36,7 +36,8 @@ func TestGeneratorRegression(t *testing.T) {
 	// We have to use a template since we're using temp files, which
 	// do not have deterministic names.
 	var buf bytes.Buffer
-	require.NoError(t, template.Must(template.New("test").Parse(expectedOutput)).Execute(&buf, map[string]string{"Name": cacheName}))
+	require.NoError(t, template.Must(template.New("test").Parse(expectedOutput)).
+		Execute(&buf, map[string]string{"Name": cacheName}))
 
 	contents, err := ioutil.ReadAll(tmpfile)
 	require.NoError(t, err)

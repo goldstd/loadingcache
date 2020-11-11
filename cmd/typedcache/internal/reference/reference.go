@@ -12,6 +12,7 @@ import (
 
 	"github.com/Hartimer/loadingcache"
 	"github.com/benbjohnson/clock"
+	"github.com/pkg/errors"
 )
 
 type TypedCache interface {
@@ -96,7 +97,7 @@ func NewTypedCache(options CacheOptions) TypedCache {
 func (i *internalImplementation) Get(key string) (int64, error) {
 	val, err := i.genericCache.Get(key)
 	if err != nil {
-		return 0, err
+		return 0, errors.Wrap(err, "")
 	}
 	typedVal, ok := val.(int64)
 	if !ok {
