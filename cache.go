@@ -339,25 +339,16 @@ func (g *genericCache) runBackgroundEvict() {
 // backgroundEvict performs a scan of the cache in search for expired entries
 // and evicts them
 func (g *genericCache) backgroundEvict() {
-	// Get all expired keys. We don't use any locks so it's possible we'll look
-	// at outdated information.
-	var possibleExpiredEntries []*cacheEntry
+	g.dataLock.Lock()
+	defer g.dataLock.Unlock()
 	for key := range g.data {
-		value := g.data[key]
-		if g.isExpired(value) {
-			possibleExpiredEntries = append(possibleExpiredEntries, value)
-		}
-	}
-
-	if len(possibleExpiredEntries) > 0 {
-		g.dataLock.Lock()
-		defer g.dataLock.Unlock()
-		for _, possibleEntry := range possibleExpiredEntries {
-			// Since things may have changed since we collected the key, double check
-			// if it is still expired
-			if entry, exists := g.data[possibleEntry.key]; exists && g.isExpired(entry) {
-				g.evict(entry.key, RemovalReasonExpired)
-			}
+		entry := g.data[key]
+		if g.isExpired(entry) {
+			// TODO: There's a possibility that we want to evict
+			// in a go routine so we can get through
+			// all expired entries as fast as possible without
+			// having to sequentially wait for removal listeners.
+			g.evict(entry.key, RemovalReasonExpired)
 		}
 	}
 }

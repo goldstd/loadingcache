@@ -1,11 +1,13 @@
 package loadingcache_test
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"testing"
 
 	"github.com/Hartimer/loadingcache"
+	"github.com/benbjohnson/clock"
 	"github.com/pkg/errors"
 	"go.uber.org/goleak"
 )
@@ -45,10 +47,10 @@ var intHashCodeFunc = func(k interface{}) int {
 }
 
 func matrixBenchmark(b *testing.B, setupFunc matrixBenchmarkSetupFunc, testFunc matrixBenchmarkFunc) {
-	matrix := cacheMatrix()
+	matrixOptions := cacheMatrix()
 	b.ResetTimer()
-	for name := range matrix {
-		cache := matrix[name]
+	for name := range matrixOptions {
+		cache := loadingcache.New(matrixOptions[name])
 		setupFunc(b, cache)
 		b.Run(name, func(b *testing.B) {
 			b.ResetTimer()
@@ -65,15 +67,23 @@ type matrixBenchmarkFunc func(b *testing.B, cache loadingcache.Cache)
 
 func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc) {
 	defer goleak.VerifyNone(t)
-	matrix := cacheMatrixWithOptions(options.cacheOptions)
-	for name := range matrix {
-		cache := matrix[name]
+	matrixOptions := cacheMatrixOptions(options.cacheOptions)
+	for name := range matrixOptions {
+		utils := &matrixTestUtils{}
+		cacheOptions := matrixOptions[name]
+		if cacheOptions.Clock == nil {
+			mockClock := clock.NewMock()
+			utils.clock = mockClock
+			cacheOptions.Clock = mockClock
+		}
+		ctx := put(context.Background(), utils)
+		cache := loadingcache.New(cacheOptions)
 		if options.setupFunc != nil {
 			options.setupFunc(t, cache)
 		}
 		t.Run(name, func(t *testing.T) {
 			defer cache.Close()
-			testFunc(t, cache)
+			testFunc(t, ctx, cache)
 		})
 	}
 }
@@ -83,24 +93,42 @@ type matrixTestOptions struct {
 	setupFunc    func(t *testing.T, cache loadingcache.Cache)
 }
 
-type matrixTestFunc func(t *testing.T, cache loadingcache.Cache)
-
-func cacheMatrix() map[string]loadingcache.Cache {
-	return cacheMatrixWithOptions(loadingcache.CacheOptions{})
+type matrixTestUtils struct {
+	clock *clock.Mock
 }
 
-func cacheMatrixWithOptions(options loadingcache.CacheOptions) map[string]loadingcache.Cache {
-	matrix := map[string]loadingcache.Cache{}
+type utilsKey struct{}
 
-	simpleOptions := options
+func put(ctx context.Context, utils *matrixTestUtils) context.Context {
+	return context.WithValue(ctx, utilsKey{}, utils)
+}
+
+func get(ctx context.Context) *matrixTestUtils {
+	val := ctx.Value(utilsKey{})
+	if val == nil {
+		panic("could not find utils in context")
+	}
+	return val.(*matrixTestUtils)
+}
+
+type matrixTestFunc func(t *testing.T, ctx context.Context, cache loadingcache.Cache)
+
+func cacheMatrix() map[string]loadingcache.CacheOptions {
+	return cacheMatrixOptions(loadingcache.CacheOptions{})
+}
+
+func cacheMatrixOptions(baseOptions loadingcache.CacheOptions) map[string]loadingcache.CacheOptions {
+	matrix := map[string]loadingcache.CacheOptions{}
+
+	simpleOptions := baseOptions
 	simpleOptions.ShardCount = 1
-	matrix["Simple"] = loadingcache.New(simpleOptions)
+	matrix["Simple"] = simpleOptions
 
 	for _, shardCount := range []int{2, 3, 16, 32} {
-		shardedOptions := options
+		shardedOptions := baseOptions
 		shardedOptions.ShardCount = shardCount
 		shardedOptions.HashCodeFunc = intHashCodeFunc
-		matrix[fmt.Sprintf("Sharded (%d)", shardCount)] = loadingcache.New(shardedOptions)
+		matrix[fmt.Sprintf("Sharded (%d)", shardCount)] = shardedOptions
 	}
 	return matrix
 }

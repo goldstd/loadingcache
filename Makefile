@@ -1,10 +1,12 @@
+GOLANGCI_VERSION=v1.32.2
+
 generate:
 	@echo 'Generating files...'
-	go generate github.com/Hartimer/loadingcache/...
+	go generate ./...
 
-test: generate
+test:
 	@echo 'Running all tests...'
-	go test github.com/Hartimer/loadingcache/... -timeout 5s -count 1
+	go test ./... -timeout 5s
 
 bench:
 	@echo 'Running all benchmarks...'
@@ -12,9 +14,10 @@ bench:
 
 test-race:
 	# Does not run on arm processors. See https://github.com/golang/go/issues/25682
+	# TODO Add if conditional on architecture
 	@echo 'Running all tests with race detection...'
-	go test -race github.com/Hartimer/loadingcache/... -timeout 5s -count 1
+	go test -race ./... -timeout 5s
 
 lint:
 	@echo 'Running golangci-lint...'
-	docker run --rm -v $(shell pwd):/app -w /app golangci/golangci-lint:v1.32.2 golangci-lint run
+	docker run --rm -v $(shell pwd):/app -w /app golangci/golangci-lint:$(GOLANGCI_VERSION) golangci-lint run

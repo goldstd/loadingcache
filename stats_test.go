@@ -1,6 +1,7 @@
 package loadingcache_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 )
 
 func TestStatsHitAndMiss(t *testing.T) {
-	matrixTest(t, matrixTestOptions{}, func(t *testing.T, cache loadingcache.Cache) {
+	matrixTest(t, matrixTestOptions{}, func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
 		_, err := cache.Get(1)
 		require.Error(t, err)
 		require.Equal(t, int64(1), cache.Stats().MissCount())
@@ -39,7 +40,7 @@ func TestLoadTimes(t *testing.T) {
 			},
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
 			for i := 1; i <= 10; i++ {
 				_, err := cache.Get(i)
 				require.NoError(t, err)
@@ -57,7 +58,7 @@ func TestLoadSuccessAndError(t *testing.T) {
 			Load: loadFunc.LoadFunc,
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
 			// Clean up after ourselves
 			defer func() {
 				loadFunc.fail = false

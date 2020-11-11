@@ -1,18 +1,18 @@
 package loadingcache_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Hartimer/loadingcache"
-	"github.com/benbjohnson/clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBasicMethods(t *testing.T) {
-	matrixTest(t, matrixTestOptions{}, func(t *testing.T, cache loadingcache.Cache) {
+	matrixTest(t, matrixTestOptions{}, func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
 		// Getting a key that does not exist should error
 		_, err := cache.Get(1)
 		require.Error(t, err)
@@ -68,14 +68,13 @@ func TestBasicMethods(t *testing.T) {
 }
 
 func TestExpireAfterWrite(t *testing.T) {
-	mockClock := clock.NewMock()
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.CacheOptions{
-			Clock:            mockClock,
 			ExpireAfterWrite: time.Minute,
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
+			mockClock := get(ctx).clock
 			cache.Put(1, 1)
 			val, err := cache.Get(1)
 			require.NoError(t, err)
@@ -98,14 +97,13 @@ func TestExpireAfterWrite(t *testing.T) {
 }
 
 func TestExpireAfterRead(t *testing.T) {
-	mockClock := clock.NewMock()
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.CacheOptions{
-			Clock:           mockClock,
 			ExpireAfterRead: time.Minute,
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
+			mockClock := get(ctx).clock
 			cache.Put(1, 1)
 			val, err := cache.Get(1)
 			require.NoError(t, err)
@@ -143,7 +141,7 @@ func TestLoadFunc(t *testing.T) {
 			Load: loadFunc.LoadFunc,
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
 			defer func() {
 				// The looad func is shared by the multiple iterations of the test.
 				// Ensure we cleanup after ourselves.
@@ -204,19 +202,18 @@ func TestMaxSize(t *testing.T) {
 
 func TestRemovalListeners(t *testing.T) {
 	t.Skip("TODO Fix enforcemento of MaxSize")
-	mockClock := clock.NewMock()
 	removalListener := &testRemovalListener{}
 	removalListener2 := &testRemovalListener{}
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.CacheOptions{
-			Clock:            mockClock,
 			ExpireAfterRead:  time.Minute,
 			ExpireAfterWrite: 2 * time.Minute,
 			MaxSize:          1,
 			RemovalListeners: []loadingcache.RemovalListener{removalListener.Listener, removalListener2.Listener},
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
+			mockClock := get(ctx).clock
 			defer func() {
 				// The listeners are shared by the multiple iterations of the test.
 				// Ensure we cleanup after ourselves.
@@ -275,11 +272,9 @@ func TestRemovalListeners(t *testing.T) {
 }
 
 func TestBackgroudEvict(t *testing.T) {
-	mockClock := clock.NewMock()
 	var removalWg sync.WaitGroup
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.CacheOptions{
-			Clock:                    mockClock,
 			ExpireAfterWrite:         20 * time.Second,
 			BackgroundEvictFrequency: 10 * time.Second,
 			RemovalListeners: []loadingcache.RemovalListener{func(notification loadingcache.RemovalNotification) {
@@ -289,7 +284,8 @@ func TestBackgroudEvict(t *testing.T) {
 			}},
 		},
 	},
-		func(t *testing.T, cache loadingcache.Cache) {
+		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
+			mockClock := get(ctx).clock
 			removalWg.Add(1)
 			// Add an item
 			cache.Put(1, "a")
