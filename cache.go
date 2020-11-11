@@ -1,3 +1,13 @@
+// Package loadingcache provides a way for clients to create a cache capable
+// of loading values on demand, should they get cache misses.
+//
+// You can configure the cache to expire entries after a certain amount elapses
+// since the last write and/or read.
+//
+// This project is heavily inspired by Guava Cache (https://github.com/google/guava/wiki/CachesExplained).
+//
+// All errors are wrapped by github.com/pkg/errors.Wrap. If you which to check
+// the type of it, please use github.com/pkg/errors.Cause.
 package loadingcache
 
 import (
@@ -92,6 +102,9 @@ type CacheOptions struct {
 	// this means that eviction policies will be executed such as write
 	// time, read time or random entry if no evection policy frees up
 	// space.
+	//
+	// If the cache is sharded, MaxSize is applied to each shard,
+	// meaning that the overall capacity will be MaxSize * ShardCount.
 	MaxSize int32
 
 	// RemovalListeners configures a removal listeners
@@ -110,12 +123,13 @@ type CacheOptions struct {
 	// for best practices surrounding hash code functions.
 	HashCodeFunc func(key interface{}) int
 
-	// BackgroundEvict controls if a background go routine should be created
-	// which automatically evicts entries that have expired.
+	// BackgroundEvictFrequency controls if a background go routine should be created
+	// which automatically evicts entries that have expired. If not speficied
+	// no background goroutine will be created.
 	//
-	// The background go routine runs every 10 seconds.
-	// To avoid go routine leaks, use the close function.
-	BackgroundEvict bool
+	// The background go routine runs with the provided frequency.
+	// To avoid go routine leaks, use the close function when you're done with the cache.
+	BackgroundEvictFrequency time.Duration
 }
 
 func (c CacheOptions) expiresAfterRead() bool {
@@ -157,7 +171,7 @@ func New(options CacheOptions) Cache {
 			done:         make(chan struct{}),
 			stats:        &stats.InternalStats{},
 		}
-		if options.BackgroundEvict {
+		if options.BackgroundEvictFrequency > 0 {
 			c.backgroundWg.Add(1)
 			go c.runBackgroundEvict()
 		}
@@ -252,17 +266,17 @@ func (g *genericCache) isExpired(entry *cacheEntry) bool {
 
 func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	g.dataLock.RLock()
-	val, exists := g.data[key]
+	entry, exists := g.data[key]
 	if !exists {
-		g.stats.Miss()
 		g.dataLock.RUnlock()
 		val, err := g.load(key)
 		return val, errors.Wrap(err, "")
 	}
+	// Create a copy of the value to return to avoid concurrent updates
+	toReturn := entry.value
 	g.dataLock.RUnlock()
 
-	if g.isExpired(val) {
-		g.stats.Miss()
+	if g.isExpired(entry) {
 		g.concurrentEvict(key, RemovalReasonExpired)
 		val, err := g.load(key)
 		return val, errors.Wrap(err, "")
@@ -270,17 +284,14 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	// It is possible that this will race. It will only be a problem
 	// if the expiry thresholds have to be respected with a high
 	// degree of precision (which is subjective).
-	val.lastRead = g.Clock.Now()
+	entry.lastRead = g.Clock.Now()
 	g.stats.Hit()
-	return val.value, nil
+	return toReturn, nil
 }
 
 func (g *genericCache) load(key interface{}) (interface{}, error) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
-	if g.Load == nil {
-		return nil, ErrKeyNotFound
-	}
 
 	// It is possible that another call loaded the value for this key.
 	// Let's do a double check if that was the case, since we have
@@ -288,6 +299,9 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 	if val, exists := g.data[key]; exists {
 		g.stats.Hit()
 		return val, nil
+	} else if g.Load == nil {
+		g.stats.Miss()
+		return nil, ErrKeyNotFound
 	}
 
 	loadStartTime := g.Clock.Now()
@@ -309,7 +323,7 @@ func (g *genericCache) concurrentEvict(key interface{}, reason RemovalReason) {
 }
 
 func (g *genericCache) runBackgroundEvict() {
-	ticker := g.Clock.Ticker(10 * time.Second)
+	ticker := g.Clock.Ticker(g.BackgroundEvictFrequency)
 	defer ticker.Stop()
 	defer g.backgroundWg.Done()
 	for {
@@ -364,6 +378,10 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 		Value:  val.value,
 		Reason: reason,
 	}
+	// Each removal listener is called on its own goroutine
+	// so a slow one does not affect the others.
+	// This could potentially be early optimization, but seems
+	// simple enough.
 	var listenerWg sync.WaitGroup
 	listenerWg.Add(len(g.RemovalListeners))
 	for i := range g.RemovalListeners {
@@ -397,8 +415,13 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 }
 
 // preWriteCleanup does a pass through all entries to assess if any are expired
-// and should be removed
+// and should be removed.
+//
+// If background cleanup os enabled, this becomes a noop.
 func (g *genericCache) preWriteCleanup() {
+	if g.BackgroundEvictFrequency > 0 {
+		return
+	}
 	for key := range g.data {
 		if g.isExpired(g.data[key]) {
 			g.evict(key, RemovalReasonExpired)
@@ -435,6 +458,7 @@ func (g *genericCache) InvalidateAll() {
 
 func (g *genericCache) Close() {
 	close(g.done)
+	// Ensure that we wait for all backgroud tasks to complete.
 	g.backgroundWg.Wait()
 }
 

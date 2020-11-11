@@ -279,9 +279,9 @@ func TestBackgroudEvict(t *testing.T) {
 	var removalWg sync.WaitGroup
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.CacheOptions{
-			Clock:            mockClock,
-			ExpireAfterWrite: 20 * time.Second,
-			BackgroundEvict:  true,
+			Clock:                    mockClock,
+			ExpireAfterWrite:         20 * time.Second,
+			BackgroundEvictFrequency: 10 * time.Second,
 			RemovalListeners: []loadingcache.RemovalListener{func(notification loadingcache.RemovalNotification) {
 				if notification.Reason == loadingcache.RemovalReasonExpired {
 					removalWg.Done()
