@@ -25,6 +25,11 @@ jobs:
       - name: Test
         run: go test -v .
 
+      - name: Coverage
+        uses: codecov/codecov-action@v1
+        with:
+          file: ./coverage.txt
+
       - name: Lint
         uses: golangci/golangci-lint-action@v2
         with:
