@@ -46,7 +46,10 @@ var intHashCodeFunc = func(k interface{}) int {
 	return k.(int)
 }
 
-func matrixBenchmark(b *testing.B, options loadingcache.CacheOptions, setupFunc matrixBenchmarkSetupFunc, testFunc matrixBenchmarkFunc) {
+func matrixBenchmark(b *testing.B,
+	options loadingcache.CacheOptions,
+	setupFunc matrixBenchmarkSetupFunc,
+	testFunc matrixBenchmarkFunc) {
 	matrixOptions := cacheMatrixOptions(options)
 	b.ResetTimer()
 	for name := range matrixOptions {

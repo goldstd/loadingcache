@@ -1,3 +1,6 @@
+// Package typedcache provides a code generator that adds
+// a thin wrapper on top of loading cache which provides
+// type safety when interating with it.
 package main
 
 import (
@@ -33,7 +36,7 @@ func main() {
 		} else {
 			fmt.Fprintf(os.Stderr, "%v", err)
 		}
-		os.Exit(2)
+		os.Exit(1)
 	}
 	err = generator.Generate(wd, *name, *keyType, *valueType)
 	if err != nil {
@@ -42,6 +45,6 @@ func main() {
 		} else {
 			fmt.Fprintf(os.Stderr, "%v", err)
 		}
-		os.Exit(3)
+		os.Exit(1)
 	}
 }

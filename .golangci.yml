@@ -1,5 +1,19 @@
+linters:
+  enable-all: true
+  disable:
+    - godot
+    - godox
+    - gofumpt
+    - wsl
+    - exhaustivestruct
+    - nlreturn
+
 issues:
   exclude-rules:
     - path: 'reference\.go'
       linters:
         - unused
+    - path: '_test\.go'
+      linters:
+        - funlen
+        - gochecknoglobals
