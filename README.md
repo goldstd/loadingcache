@@ -1,1 +1,1 @@
-[![godoc](https://godoc.org/github.com/Hartimer/loadingcache?status.svg)][godoc]
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/Hartimer/loadingcache)](https://pkg.go.dev/github.com/Hartimer/loadingcache)

@@ -22,7 +22,7 @@ func ExampleCache_simpleUsage() {
 
 	// Getting a value that does not exist
 	_, err := cache.Get("d")
-	if errors.Cause(err) == loadingcache.ErrKeyNotFound {
+	if errors.Is(err, loadingcache.ErrKeyNotFound) {
 		fmt.Println("That key does not exist")
 	}
 

@@ -75,6 +75,7 @@ func (s *InternalStats) HitCount() int64 {
 func (s *InternalStats) HitRate() float64 {
 	s.statsLock.RLock()
 	defer s.statsLock.RUnlock()
+
 	requestCount := s.hitCount + s.missCount
 	if requestCount == 0 {
 		return 1
@@ -91,6 +92,7 @@ func (s *InternalStats) MissCount() int64 {
 func (s *InternalStats) MissRate() float64 {
 	s.statsLock.RLock()
 	defer s.statsLock.RUnlock()
+
 	requestCount := s.hitCount + s.missCount
 	if requestCount == 0 {
 		return 0
@@ -117,6 +119,7 @@ func (s *InternalStats) LoadErrorCount() int64 {
 func (s *InternalStats) LoadErrorRate() float64 {
 	s.statsLock.RLock()
 	defer s.statsLock.RUnlock()
+
 	totalLoads := s.loadSuccessCount + s.loadErrorCount
 	if totalLoads == 0 {
 		return 0
@@ -140,6 +143,7 @@ func (s *InternalStats) LoadTotalTime() time.Duration {
 func (s *InternalStats) AverageLoadPenalty() time.Duration {
 	s.statsLock.RLock()
 	defer s.statsLock.RUnlock()
+
 	totalLoads := s.loadSuccessCount + s.loadErrorCount
 	if totalLoads == 0 {
 		return 0

@@ -1,11 +1,12 @@
 package example
 
+//nolint:lll
 //go:generate go run github.com/Hartimer/loadingcache/cmd/typedcache -name CoolCache -key "github.com/Hartimer/loadingcache/example.Name" -value int64
 
 // Name just represents a deeper type
 type Name string
 
-// Example demonstrats using a strongly typed cache
+// Example demonstrates using a strongly typed cache
 type Example struct {
 	cache CoolCache
 }
@@ -13,6 +14,7 @@ type Example struct {
 // New returns a new instance of the example
 func New() *Example {
 	return &Example{
+		//nolint:gomnd
 		cache: NewCoolCache(CoolCacheOptions{MaxSize: 10}),
 	}
 }

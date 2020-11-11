@@ -7,7 +7,7 @@
 // This project is heavily inspired by Guava Cache (https://github.com/google/guava/wiki/CachesExplained).
 //
 // All errors are wrapped by github.com/pkg/errors.Wrap. If you which to check
-// the type of it, please use github.com/pkg/errors.Cause.
+// the type of it, please use github.com/pkg/errors.Is.
 package loadingcache
 
 import (
@@ -235,7 +235,6 @@ func (s *shardedCache) Stats() Stats {
 		default:
 			panic(fmt.Sprintf("unsupported cache type %T", shard))
 		}
-
 	}
 	return statsSum
 }
@@ -301,7 +300,7 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 		return val, nil
 	} else if g.Load == nil {
 		g.stats.Miss()
-		return nil, ErrKeyNotFound
+		return nil, errors.Wrap(ErrKeyNotFound, "")
 	}
 
 	loadStartTime := g.Clock.Now()
@@ -449,7 +448,7 @@ func (g *genericCache) InvalidateAll() {
 
 func (g *genericCache) Close() {
 	close(g.done)
-	// Ensure that we wait for all backgroud tasks to complete.
+	// Ensure that we wait for all background tasks to complete.
 	g.backgroundWg.Wait()
 }
 
