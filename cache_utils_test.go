@@ -46,8 +46,8 @@ var intHashCodeFunc = func(k interface{}) int {
 	return k.(int)
 }
 
-func matrixBenchmark(b *testing.B, setupFunc matrixBenchmarkSetupFunc, testFunc matrixBenchmarkFunc) {
-	matrixOptions := cacheMatrix()
+func matrixBenchmark(b *testing.B, options loadingcache.CacheOptions, setupFunc matrixBenchmarkSetupFunc, testFunc matrixBenchmarkFunc) {
+	matrixOptions := cacheMatrixOptions(options)
 	b.ResetTimer()
 	for name := range matrixOptions {
 		cache := loadingcache.New(matrixOptions[name])
@@ -112,10 +112,6 @@ func get(ctx context.Context) *matrixTestUtils {
 }
 
 type matrixTestFunc func(t *testing.T, ctx context.Context, cache loadingcache.Cache)
-
-func cacheMatrix() map[string]loadingcache.CacheOptions {
-	return cacheMatrixOptions(loadingcache.CacheOptions{})
-}
 
 func cacheMatrixOptions(baseOptions loadingcache.CacheOptions) map[string]loadingcache.CacheOptions {
 	matrix := map[string]loadingcache.CacheOptions{}
