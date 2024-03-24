@@ -138,7 +138,7 @@ func TestLoadFunc(t *testing.T) {
 	loadFunc := &testLoadFunc{}
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.Options{
-			Load: loadFunc.LoadFunc,
+			Load: loadFunc,
 		},
 	},
 		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
@@ -167,6 +167,43 @@ func TestLoadFunc(t *testing.T) {
 			// After invalidating, getting should fail again
 			cache.Invalidate(2)
 			_, err = cache.Get(2)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "failing on request")
+		})
+}
+
+func TestLoadFunc2(t *testing.T) {
+	loadFunc := &testLoadFunc{}
+	getOption := loadingcache.GetOption{Load: loadFunc}
+	matrixTest(t, matrixTestOptions{
+		cacheOptions: loadingcache.Options{},
+	},
+		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
+			defer func() {
+				// The load func is shared by the multiple iterations of the test.
+				// Ensure we clean up after ourselves.
+				loadFunc.fail = false
+			}()
+			// Getting a value that does not exist should load it
+			val, err := cache.Get(1, getOption)
+			require.NoError(t, err)
+			require.Equal(t, "1", val)
+
+			// Getting a value that the loader fails to error should propagate the error
+			loadFunc.fail = true
+			_, err = cache.Get(2, getOption)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "failing on request")
+
+			// Adding the value manually should succeed
+			cache.Put(2, "true")
+			val, err = cache.Get(2, getOption)
+			require.NoError(t, err)
+			require.Equal(t, "true", val)
+
+			// After invalidating, getting should fail again
+			cache.Invalidate(2)
+			_, err = cache.Get(2, getOption)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "failing on request")
 		})

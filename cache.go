@@ -73,13 +73,17 @@ type RemovalNotification struct {
 // RemovalListener represents a removal listener
 type RemovalListener func(RemovalNotification)
 
+type GetOption struct {
+	Load Loader
+}
+
 // Cache describe the base interface to interact with a generic cache.
 //
 // This interface reduces all keys and values to a generic any.
 type Cache interface {
 	// Get returns the value associated with a given key. If no entry exists for
 	// the provided key, loadingcache.ErrKeyNotFound is returned.
-	Get(key any) (any, error)
+	Get(key any, options ...GetOption) (any, error)
 
 	// Put adds a value to the cache identified by a key.
 	// If a value already exists associated with that key, it
@@ -110,7 +114,7 @@ type Options struct {
 	Clock clock.Clock
 
 	// Load configures a loading function
-	Load LoadFunc
+	Load Loader
 
 	// HashCodeFunc is a function that produces a hashcode of the key.
 	//
@@ -175,8 +179,17 @@ func (c Options) expiresAfterWrite() bool {
 // CacheOption describes an option that can configure the cache
 type CacheOption func(Cache)
 
+// Loader represents an interface for loading cache value.
+type Loader interface {
+	Load(any) (any, error)
+}
+
 // LoadFunc represents a function that given a key, it returns a value or an error.
 type LoadFunc func(any) (any, error)
+
+func (f LoadFunc) Load(k any) (any, error) {
+	return f(k)
+}
 
 type cacheEntry struct {
 	value     any
@@ -227,8 +240,8 @@ type shardedCache struct {
 
 func (s *shardedCache) IsSharded() bool { return true }
 
-func (s *shardedCache) Get(key any) (any, error) {
-	val, err := s.shards[s.HashCodeFunc(key)%len(s.shards)].Get(key)
+func (s *shardedCache) Get(key any, options ...GetOption) (any, error) {
+	val, err := s.shards[s.HashCodeFunc(key)%len(s.shards)].Get(key, options...)
 	return val, errors.Wrap(err, "shard get")
 }
 
@@ -282,7 +295,7 @@ type genericCache struct {
 	dataLock sync.RWMutex
 }
 
-func (s *genericCache) IsSharded() bool { return false }
+func (g *genericCache) IsSharded() bool { return false }
 
 func (g *genericCache) isExpired(entry *cacheEntry) (RemovalReason, bool) {
 	if g.expiresAfterRead() && entry.lastRead.Add(g.ExpireAfterRead).Before(g.Clock.Now()) {
@@ -294,12 +307,20 @@ func (g *genericCache) isExpired(entry *cacheEntry) (RemovalReason, bool) {
 	return RemovalReasonExplicit, false
 }
 
-func (g *genericCache) Get(key any) (any, error) {
+func (g *genericCache) Get(key any, options ...GetOption) (any, error) {
+	if len(options) > 1 {
+		panic("Get called with too many options")
+	}
+	option := GetOption{}
+	if len(options) > 0 {
+		option = options[0]
+	}
+
 	g.dataLock.RLock()
 	entry, exists := g.data[key]
 	if !exists {
 		g.dataLock.RUnlock()
-		val, err := g.load(key)
+		val, err := g.load(key, option)
 		return val, errors.Wrap(err, "")
 	}
 	// Create a copy of the value to return to avoid concurrent updates
@@ -308,7 +329,7 @@ func (g *genericCache) Get(key any) (any, error) {
 
 	if reason, expired := g.isExpired(entry); expired {
 		g.concurrentEvict(key, reason)
-		val, err := g.load(key)
+		val, err := g.load(key, option)
 		return val, errors.Wrap(err, "loading")
 	}
 	// It is possible that this will race. It will only be a problem
@@ -319,7 +340,12 @@ func (g *genericCache) Get(key any) (any, error) {
 	return toReturn, nil
 }
 
-func (g *genericCache) load(key any) (any, error) {
+func (g *genericCache) load(key any, option GetOption) (any, error) {
+	loader := option.Load
+	if loader == nil {
+		loader = g.Load
+	}
+
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 
@@ -329,13 +355,13 @@ func (g *genericCache) load(key any) (any, error) {
 	if val, exists := g.data[key]; exists {
 		g.stats.Hit()
 		return val, nil
-	} else if g.Load == nil {
+	} else if loader == nil {
 		g.stats.Miss()
 		return nil, errors.Wrap(ErrKeyNotFound, "miss")
 	}
 
 	loadStartTime := g.Clock.Now()
-	val, err := g.Load(key)
+	val, err := loader.Load(key)
 	if err != nil {
 		g.stats.LoadError()
 		return nil, errors.Wrapf(err, "failed to load key %v", key)

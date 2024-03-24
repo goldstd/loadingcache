@@ -21,8 +21,8 @@ func TestStatsHitAndMiss(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), cache.Stats().HitCount())
 
-		require.Equal(t, float64(0.5), cache.Stats().HitRate())
-		require.Equal(t, float64(0.5), cache.Stats().MissRate())
+		require.Equal(t, 0.5, cache.Stats().HitRate())
+		require.Equal(t, 0.5, cache.Stats().MissRate())
 		require.Equal(t, int64(2), cache.Stats().RequestCount())
 	})
 }
@@ -33,11 +33,11 @@ func TestLoadTimes(t *testing.T) {
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.Options{
 			Clock: mockClock,
-			Load: func(key any) (any, error) {
+			Load: loadingcache.LoadFunc(func(key any) (any, error) {
 				// Simulating that the loading takes 100ms
 				mockClock.Add(loadTime)
 				return key, nil
-			},
+			}),
 		},
 	},
 		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
@@ -55,7 +55,7 @@ func TestLoadSuccessAndError(t *testing.T) {
 	loadFunc := &testLoadFunc{}
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.Options{
-			Load: loadFunc.LoadFunc,
+			Load: loadFunc,
 		},
 	},
 		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
