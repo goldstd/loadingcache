@@ -1,13 +1,17 @@
-module github.com/Hartimer/loadingcache
+module github.com/goldstd/loadingcache
 
-go 1.15
+go 1.20
 
 require (
-	github.com/benbjohnson/clock v1.0.3
-	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/benbjohnson/clock v1.3.5
 	github.com/pkg/errors v0.9.1
-	github.com/stretchr/testify v1.6.1
-	go.uber.org/goleak v1.1.10
-	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
-	golang.org/x/tools v0.0.0-20201110124207-079ba7bd75cd
+	github.com/stretchr/testify v1.9.0
+	go.uber.org/goleak v1.3.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

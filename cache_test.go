@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Hartimer/loadingcache"
+	"github.com/goldstd/loadingcache"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -69,7 +69,7 @@ func TestBasicMethods(t *testing.T) {
 
 func TestExpireAfterWrite(t *testing.T) {
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
+		cacheOptions: loadingcache.Options{
 			ExpireAfterWrite: time.Minute,
 		},
 	},
@@ -98,7 +98,7 @@ func TestExpireAfterWrite(t *testing.T) {
 
 func TestExpireAfterRead(t *testing.T) {
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
+		cacheOptions: loadingcache.Options{
 			ExpireAfterRead: time.Minute,
 		},
 	},
@@ -137,14 +137,14 @@ func TestExpireAfterRead(t *testing.T) {
 func TestLoadFunc(t *testing.T) {
 	loadFunc := &testLoadFunc{}
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
+		cacheOptions: loadingcache.Options{
 			Load: loadFunc.LoadFunc,
 		},
 	},
 		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
 			defer func() {
-				// The looad func is shared by the multiple iterations of the test.
-				// Ensure we cleanup after ourselves.
+				// The load func is shared by the multiple iterations of the test.
+				// Ensure we clean up after ourselves.
 				loadFunc.fail = false
 			}()
 			// Getting a value that does not exist should load it
@@ -175,14 +175,14 @@ func TestLoadFunc(t *testing.T) {
 func TestMaxSize(t *testing.T) {
 	// TODO MaxSize is currently not properly enforced in a sharded environment
 	caches := []loadingcache.Cache{
-		loadingcache.New(loadingcache.CacheOptions{
+		loadingcache.Options{
 			MaxSize: 1,
-		}),
-		loadingcache.New(loadingcache.CacheOptions{
+		}.New(),
+		loadingcache.Options{
 			MaxSize:      1,
 			ShardCount:   3,
-			HashCodeFunc: stringHashCodeFunc,
-		}),
+			HashCodeFunc: loadingcache.StringHashCodeFunc,
+		}.New(),
 	}
 	for _, cache := range caches {
 		// With a capacity of one element, adding a second element
@@ -201,11 +201,11 @@ func TestMaxSize(t *testing.T) {
 }
 
 func TestRemovalListeners(t *testing.T) {
-	t.Skip("TODO Fix enforcemento of MaxSize")
+	//t.Skip("TODO Fix enforcement of MaxSize")
 	removalListener := &testRemovalListener{}
 	removalListener2 := &testRemovalListener{}
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
+		cacheOptions: loadingcache.Options{
 			ExpireAfterRead:  time.Minute,
 			ExpireAfterWrite: 2 * time.Minute,
 			MaxSize:          1,
@@ -213,10 +213,14 @@ func TestRemovalListeners(t *testing.T) {
 		},
 	},
 		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
+			if cache.IsSharded() {
+				return
+			}
+
 			mockClock := get(ctx).clock
 			defer func() {
 				// The listeners are shared by the multiple iterations of the test.
-				// Ensure we cleanup after ourselves.
+				// Ensure we clean up after ourselves.
 				removalListener.lastRemovalNotification = loadingcache.RemovalNotification{}
 				removalListener2.lastRemovalNotification = loadingcache.RemovalNotification{}
 			}()
@@ -246,8 +250,8 @@ func TestRemovalListeners(t *testing.T) {
 			_, _ = cache.Get(2)
 			lastNotification = removalListener.lastRemovalNotification
 			lastNotification2 = removalListener2.lastRemovalNotification
-			require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification.Reason)
-			require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification2.Reason)
+			require.Equal(t, loadingcache.RemovalReasonReadExpired, lastNotification.Reason)
+			require.Equal(t, loadingcache.RemovalReasonReadExpired, lastNotification2.Reason)
 			require.Equal(t, 2, lastNotification.Key)
 			require.Equal(t, 2, lastNotification.Value)
 
@@ -257,28 +261,29 @@ func TestRemovalListeners(t *testing.T) {
 			// Doing a read to refresh the expiry
 			_, _ = cache.Get(2)
 			mockClock.Add(time.Minute)
-			// Doing a another read to refresh the expiry
+			// Doing a read to refresh the expiry
 			_, _ = cache.Get(2)
 			mockClock.Add(1)
 			// We don't care about the value or error, we just want to trigger the eviction
 			_, _ = cache.Get(2)
 			lastNotification = removalListener.lastRemovalNotification
 			lastNotification2 = removalListener2.lastRemovalNotification
-			require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification.Reason)
-			require.Equal(t, loadingcache.RemovalReasonExpired, lastNotification2.Reason)
+			require.Equal(t, loadingcache.RemovalReasonWriteExpired, lastNotification.Reason)
+			require.Equal(t, loadingcache.RemovalReasonWriteExpired, lastNotification2.Reason)
 			require.Equal(t, 2, lastNotification.Key)
 			require.Equal(t, 3, lastNotification.Value)
 		})
 }
 
-func TestBackgroudEvict(t *testing.T) {
+func TestBackgroundEvict(t *testing.T) {
 	var removalWg sync.WaitGroup
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
-			ExpireAfterWrite:         20 * time.Second,
-			BackgroundEvictFrequency: 10 * time.Second,
+		cacheOptions: loadingcache.Options{
+			ExpireAfterWrite: 20 * time.Second,
+			EvictInterval:    10 * time.Second,
 			RemovalListeners: []loadingcache.RemovalListener{func(notification loadingcache.RemovalNotification) {
-				if notification.Reason == loadingcache.RemovalReasonExpired {
+				switch notification.Reason {
+				case loadingcache.RemovalReasonReadExpired, loadingcache.RemovalReasonWriteExpired:
 					removalWg.Done()
 				}
 			}},
@@ -290,7 +295,7 @@ func TestBackgroudEvict(t *testing.T) {
 			// Add an item
 			cache.Put(1, "a")
 
-			// Advance 10 seconds, which should call the background evicter
+			// Advance 10 seconds, which should call the background evict-er
 			mockClock.Add(10 * time.Second)
 
 			// The value should still be there

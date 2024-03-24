@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Hartimer/loadingcache"
-	"github.com/Hartimer/loadingcache/internal/stats"
+	"github.com/goldstd/loadingcache"
+	"github.com/goldstd/loadingcache/internal/stats"
 	"github.com/stretchr/testify/require"
 )
 

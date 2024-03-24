@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Hartimer/loadingcache"
+	"github.com/goldstd/loadingcache"
 	"github.com/pkg/errors"
 )
 
 func ExampleCache_simpleUsage() {
-	cache := loadingcache.New(loadingcache.CacheOptions{})
+	cache := loadingcache.Options{}.New()
 
-	// Addign some values and reading them
+	// Adding some values and reading them
 	cache.Put("a", 1)
 	cache.Put("b", 2)
 	cache.Put("c", 3)
@@ -37,7 +37,7 @@ func ExampleCache_simpleUsage() {
 }
 
 func ExampleCache_advancedUsage() {
-	cache := loadingcache.New(loadingcache.CacheOptions{
+	cache := loadingcache.Options{
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,
 		ExpireAfterWrite: time.Minute,
@@ -46,11 +46,11 @@ func ExampleCache_advancedUsage() {
 				fmt.Printf("Entry removed due to %s\n", notification.Reason)
 			},
 		},
-		Load: func(key interface{}) (interface{}, error) {
+		Load: func(key any) (any, error) {
 			fmt.Printf("Loading key %v\n", key)
 			return fmt.Sprint(key), nil
 		},
-	})
+	}.New()
 
 	cache.Put(1, "1")
 	val1, _ := cache.Get(1)
@@ -66,6 +66,6 @@ func ExampleCache_advancedUsage() {
 	// Loading key 2
 	// 2
 	// Loading key 3
-	// Entry removed due to SIZE
+	// Entry removed due to Size
 	// 3
 }

@@ -12,40 +12,61 @@ package loadingcache
 
 import (
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"time"
 
-	"github.com/Hartimer/loadingcache/internal/stats"
 	"github.com/benbjohnson/clock"
+	"github.com/goldstd/loadingcache/internal/stats"
 	"github.com/pkg/errors"
 )
 
 // ErrKeyNotFound represents an error indicating that the key was not found
-var ErrKeyNotFound error = errors.New("Key not found")
+var ErrKeyNotFound = errors.New("Key not found")
 
 // RemovalReason is an enum describing the causes for an entry to
 // be removed from the cache.
-type RemovalReason string
+type RemovalReason int
 
 const (
 	// RemovalReasonExplicit means the entry was explicitly invalidated
-	RemovalReasonExplicit RemovalReason = "EXPLICIT"
+	RemovalReasonExplicit RemovalReason = iota
 
 	// RemovalReasonReplaced means the entry was replaced by a new one
-	RemovalReasonReplaced RemovalReason = "REPLACED"
+	RemovalReasonReplaced
 
-	// RemovalReasonExpired means the entry expired, e.g. too much time
+	// RemovalReasonReadExpired means the entry read expired, e.g. too much time
 	// since last read/write.
-	RemovalReasonExpired RemovalReason = "EXPIRED"
+	RemovalReasonReadExpired
+
+	// RemovalReasonWriteExpired means the entry write expired, e.g. too much time
+	// since last read/write.
+	RemovalReasonWriteExpired
 
 	// RemovalReasonSize means the entry was removed due to the cache size.
-	RemovalReasonSize RemovalReason = "SIZE"
+	RemovalReasonSize
 )
+
+func (r RemovalReason) String() string {
+	switch r {
+	case RemovalReasonExplicit:
+		return "Explicit"
+	case RemovalReasonReplaced:
+		return "Replaced"
+	case RemovalReasonReadExpired:
+		return "ReadExpired"
+	case RemovalReasonWriteExpired:
+		return "WriteExpired"
+	case RemovalReasonSize:
+		return "Size"
+	}
+	return "Unknown"
+}
 
 // RemovalNotification is passed to listeners everytime an entry is removed
 type RemovalNotification struct {
-	Key    interface{}
-	Value  interface{}
+	Key    any
+	Value  any
 	Reason RemovalReason
 }
 
@@ -54,20 +75,19 @@ type RemovalListener func(RemovalNotification)
 
 // Cache describe the base interface to interact with a generic cache.
 //
-// This interface reduces all keys and values to a generic interface{}.
+// This interface reduces all keys and values to a generic any.
 type Cache interface {
-
 	// Get returns the value associated with a given key. If no entry exists for
 	// the provided key, loadingcache.ErrKeyNotFound is returned.
-	Get(key interface{}) (interface{}, error)
+	Get(key any) (any, error)
 
 	// Put adds a value to the cache identified by a key.
 	// If a value already exists associated with that key, it
 	// is replaced.
-	Put(key interface{}, value interface{})
+	Put(key, value any)
 
-	// Invalidate removes keys from the cache. If a key does not exists it is a noop.
-	Invalidate(key interface{}, keys ...interface{})
+	// Invalidate removes keys from the cache. If a key does not exist it is a noop.
+	Invalidate(keys ...any)
 
 	// InvalidateAll invalidates all keys
 	InvalidateAll()
@@ -75,16 +95,31 @@ type Cache interface {
 	// Close cleans up any resources used by the cache
 	Close()
 
-	// Stats returns the curret stats
+	// Stats returns the current stats
 	Stats() Stats
+
+	// IsSharded tells the implementation is a sharded cache for testing.
+	IsSharded() bool
 }
 
-// CacheOptions available options to initialize the cache
-type CacheOptions struct {
+// Options available options to initialize the cache
+type Options struct {
 	// Clock allows passing a custom clock to be used with the cache.
 	//
 	// This is useful for testing, where controlling time is important.
 	Clock clock.Clock
+
+	// Load configures a loading function
+	Load LoadFunc
+
+	// HashCodeFunc is a function that produces a hashcode of the key.
+	//
+	// See https://docs.oracle.com/en/java/javase/15/docs/api/java.base/java/lang/Object.html#hashCode()
+	// for best practices surrounding hash code functions.
+	HashCodeFunc func(key any) int
+
+	// RemovalListeners configures a removal listeners
+	RemovalListeners []RemovalListener
 
 	// ExpireAfterWrite configures the cache to expire entries after
 	// a given duration after writing.
@@ -94,8 +129,13 @@ type CacheOptions struct {
 	// a given duration after reading.
 	ExpireAfterRead time.Duration
 
-	// Load configures a loading function
-	Load LoadFunc
+	// EvictInterval controls if a background go routine should be created
+	// which automatically evicts entries that have expired. If not specified,
+	// no background goroutine will be created.
+	//
+	// The background go routine runs with the provided frequency.
+	// To avoid go routine leaks, use the close function when you're done with the cache.
+	EvictInterval time.Duration
 
 	// MaxSize limits the number of entries allowed in the cache.
 	// If the limit is achieved, an eviction process will take place,
@@ -105,38 +145,30 @@ type CacheOptions struct {
 	//
 	// If the cache is sharded, MaxSize is applied to each shard,
 	// meaning that the overall capacity will be MaxSize * ShardCount.
-	MaxSize int32
-
-	// RemovalListeners configures a removal listeners
-	RemovalListeners []RemovalListener
+	MaxSize uint32
 
 	// ShardCount indicates how many shards will be used by the cache.
 	// This allows some degree of parallelism in read and writing to the cache.
 	//
 	// If the shard count is greater than 1, then HashCodeFunc must be provided
 	// otherwise the constructor will panic.
-	ShardCount int
-
-	// HashCodeFunc is a function that produces a hashcode of the key.
-	//
-	// See https://docs.oracle.com/en/java/javase/15/docs/api/java.base/java/lang/Object.html#hashCode()
-	// for best practices surrounding hash code functions.
-	HashCodeFunc func(key interface{}) int
-
-	// BackgroundEvictFrequency controls if a background go routine should be created
-	// which automatically evicts entries that have expired. If not speficied
-	// no background goroutine will be created.
-	//
-	// The background go routine runs with the provided frequency.
-	// To avoid go routine leaks, use the close function when you're done with the cache.
-	BackgroundEvictFrequency time.Duration
+	ShardCount uint32
 }
 
-func (c CacheOptions) expiresAfterRead() bool {
+// StringHashCodeFunc is a hash code function for strings which uses fnv.New32a
+var StringHashCodeFunc = func(k any) int {
+	h := fnv.New32a()
+	if _, err := h.Write([]byte(k.(string))); err != nil {
+		panic(err)
+	}
+	return int(h.Sum32())
+}
+
+func (c Options) expiresAfterRead() bool {
 	return c.ExpireAfterRead > 0
 }
 
-func (c CacheOptions) expiresAfterWrite() bool {
+func (c Options) expiresAfterWrite() bool {
 	return c.ExpireAfterWrite > 0
 }
 
@@ -144,71 +176,67 @@ func (c CacheOptions) expiresAfterWrite() bool {
 type CacheOption func(Cache)
 
 // LoadFunc represents a function that given a key, it returns a value or an error.
-type LoadFunc func(interface{}) (interface{}, error)
+type LoadFunc func(any) (any, error)
 
 type cacheEntry struct {
-	key       interface{}
-	value     interface{}
+	value     any
 	lastRead  time.Time
 	lastWrite time.Time
 }
 
 // New instantiates a new cache
-func New(options CacheOptions) Cache {
-	if options.Clock == nil {
-		options.Clock = clock.New()
+func (c Options) New() Cache {
+	if c.Clock == nil {
+		c.Clock = clock.New()
 	}
 
-	if options.ShardCount < 0 {
-		panic("shard count must be non-negative")
-	}
-
-	switch options.ShardCount {
+	switch c.ShardCount {
 	case 0, 1:
 		c := &genericCache{
-			CacheOptions: options,
-			data:         map[interface{}]*cacheEntry{},
-			done:         make(chan struct{}),
-			stats:        &stats.InternalStats{},
+			Options: c,
+			data:    map[any]*cacheEntry{},
+			done:    make(chan struct{}),
+			stats:   &stats.InternalStats{},
 		}
-		if options.BackgroundEvictFrequency > 0 {
+		if c.EvictInterval > 0 {
 			c.backgroundWg.Add(1)
 			go c.runBackgroundEvict()
 		}
 		return c
-	default:
-		if options.HashCodeFunc == nil {
-			panic("cannot have a sharded cache without a hashcode function")
-		}
-		singleShardOptions := options
-		singleShardOptions.ShardCount = 1
-		s := &shardedCache{
-			CacheOptions: options,
-			shards:       make([]Cache, options.ShardCount),
-		}
-		for i := 0; i < options.ShardCount; i++ {
-			s.shards[i] = New(singleShardOptions)
-		}
-		return s
 	}
+
+	if c.HashCodeFunc == nil {
+		c.HashCodeFunc = StringHashCodeFunc
+	}
+	singleShardOptions := c
+	singleShardOptions.ShardCount = 1
+	s := &shardedCache{
+		Options: c,
+		shards:  make([]Cache, c.ShardCount),
+	}
+	for i := uint32(0); i < c.ShardCount; i++ {
+		s.shards[i] = singleShardOptions.New()
+	}
+	return s
 }
 
 type shardedCache struct {
-	CacheOptions
 	shards []Cache
+	Options
 }
 
-func (s *shardedCache) Get(key interface{}) (interface{}, error) {
+func (s *shardedCache) IsSharded() bool { return true }
+
+func (s *shardedCache) Get(key any) (any, error) {
 	val, err := s.shards[s.HashCodeFunc(key)%len(s.shards)].Get(key)
-	return val, errors.Wrap(err, "")
+	return val, errors.Wrap(err, "shard get")
 }
 
-func (s *shardedCache) Put(key interface{}, value interface{}) {
+func (s *shardedCache) Put(key, value any) {
 	s.shards[s.HashCodeFunc(key)%len(s.shards)].Put(key, value)
 }
 
-func (s *shardedCache) Invalidate(key interface{}, keys ...interface{}) {
-	s.shards[s.HashCodeFunc(key)%len(s.shards)].Invalidate(key)
+func (s *shardedCache) Invalidate(keys ...any) {
 	for _, k := range keys {
 		s.shards[s.HashCodeFunc(k)%len(s.shards)].Invalidate(k)
 	}
@@ -240,30 +268,33 @@ func (s *shardedCache) Stats() Stats {
 }
 
 // genericCache is an implementation of a cache where keys and values are
-// of type interface{}
+// of type any
 type genericCache struct {
-	CacheOptions
+	data map[any]*cacheEntry
 
-	data     map[interface{}]*cacheEntry
-	dataLock sync.RWMutex
-
-	done         chan struct{}
-	backgroundWg sync.WaitGroup
+	done chan struct{}
 
 	stats *stats.InternalStats
+	Options
+
+	backgroundWg sync.WaitGroup
+
+	dataLock sync.RWMutex
 }
 
-func (g *genericCache) isExpired(entry *cacheEntry) bool {
+func (s *genericCache) IsSharded() bool { return false }
+
+func (g *genericCache) isExpired(entry *cacheEntry) (RemovalReason, bool) {
 	if g.expiresAfterRead() && entry.lastRead.Add(g.ExpireAfterRead).Before(g.Clock.Now()) {
-		return true
+		return RemovalReasonReadExpired, true
 	}
 	if g.expiresAfterWrite() && entry.lastWrite.Add(g.ExpireAfterWrite).Before(g.Clock.Now()) {
-		return true
+		return RemovalReasonWriteExpired, true
 	}
-	return false
+	return RemovalReasonExplicit, false
 }
 
-func (g *genericCache) Get(key interface{}) (interface{}, error) {
+func (g *genericCache) Get(key any) (any, error) {
 	g.dataLock.RLock()
 	entry, exists := g.data[key]
 	if !exists {
@@ -275,10 +306,10 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	toReturn := entry.value
 	g.dataLock.RUnlock()
 
-	if g.isExpired(entry) {
-		g.concurrentEvict(key, RemovalReasonExpired)
+	if reason, expired := g.isExpired(entry); expired {
+		g.concurrentEvict(key, reason)
 		val, err := g.load(key)
-		return val, errors.Wrap(err, "")
+		return val, errors.Wrap(err, "loading")
 	}
 	// It is possible that this will race. It will only be a problem
 	// if the expiry thresholds have to be respected with a high
@@ -288,7 +319,7 @@ func (g *genericCache) Get(key interface{}) (interface{}, error) {
 	return toReturn, nil
 }
 
-func (g *genericCache) load(key interface{}) (interface{}, error) {
+func (g *genericCache) load(key any) (any, error) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 
@@ -300,7 +331,7 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 		return val, nil
 	} else if g.Load == nil {
 		g.stats.Miss()
-		return nil, errors.Wrap(ErrKeyNotFound, "")
+		return nil, errors.Wrap(ErrKeyNotFound, "miss")
 	}
 
 	loadStartTime := g.Clock.Now()
@@ -315,14 +346,14 @@ func (g *genericCache) load(key interface{}) (interface{}, error) {
 	return val, nil
 }
 
-func (g *genericCache) concurrentEvict(key interface{}, reason RemovalReason) {
+func (g *genericCache) concurrentEvict(key any, reason RemovalReason) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 	g.evict(key, reason)
 }
 
 func (g *genericCache) runBackgroundEvict() {
-	ticker := g.Clock.Ticker(g.BackgroundEvictFrequency)
+	ticker := g.Clock.Ticker(g.EvictInterval)
 	defer ticker.Stop()
 	defer g.backgroundWg.Done()
 	for {
@@ -340,19 +371,18 @@ func (g *genericCache) runBackgroundEvict() {
 func (g *genericCache) backgroundEvict() {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
-	for key := range g.data {
-		entry := g.data[key]
-		if g.isExpired(entry) {
+	for key, entry := range g.data {
+		if reason, expired := g.isExpired(entry); expired {
 			// TODO: There's a possibility that we want to evict
 			// in a go routine so we can get through
 			// all expired entries as fast as possible without
 			// having to sequentially wait for removal listeners.
-			g.evict(entry.key, RemovalReasonExpired)
+			g.evict(key, reason)
 		}
 	}
 }
 
-func (g *genericCache) evict(key interface{}, reason RemovalReason) {
+func (g *genericCache) evict(key any, reason RemovalReason) {
 	val, exists := g.data[key]
 	if !exists {
 		return
@@ -386,8 +416,8 @@ func (g *genericCache) evict(key interface{}, reason RemovalReason) {
 
 // internalPut actually saves the values into the internal structures.
 // It does not handle any synchronization, leaving that to the caller.
-func (g *genericCache) internalPut(key interface{}, value interface{}) {
-	if g.MaxSize > 0 && int32(len(g.data)) >= g.MaxSize {
+func (g *genericCache) internalPut(key any, value any) {
+	if g.MaxSize > 0 && len(g.data) >= int(g.MaxSize) {
 		// If eviction is needed it currently removes a random entry,
 		// since maps do not have a deterministic order.
 		// TODO: Apply smarter eviction policies if available
@@ -396,11 +426,11 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 			break
 		}
 	}
+	now := g.Clock.Now()
 	g.data[key] = &cacheEntry{
-		key:       key,
 		value:     value,
-		lastRead:  g.Clock.Now(),
-		lastWrite: g.Clock.Now(),
+		lastRead:  now,
+		lastWrite: now,
 	}
 }
 
@@ -409,17 +439,17 @@ func (g *genericCache) internalPut(key interface{}, value interface{}) {
 //
 // If background cleanup os enabled, this becomes a noop.
 func (g *genericCache) preWriteCleanup() {
-	if g.BackgroundEvictFrequency > 0 {
+	if g.EvictInterval > 0 {
 		return
 	}
 	for key := range g.data {
-		if g.isExpired(g.data[key]) {
-			g.evict(key, RemovalReasonExpired)
+		if reason, expired := g.isExpired(g.data[key]); expired {
+			g.evict(key, reason)
 		}
 	}
 }
 
-func (g *genericCache) Put(key interface{}, value interface{}) {
+func (g *genericCache) Put(key, value any) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 	g.preWriteCleanup()
@@ -429,10 +459,9 @@ func (g *genericCache) Put(key interface{}, value interface{}) {
 	g.internalPut(key, value)
 }
 
-func (g *genericCache) Invalidate(key interface{}, keys ...interface{}) {
+func (g *genericCache) Invalidate(keys ...any) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
-	delete(g.data, key)
 	for _, k := range keys {
 		delete(g.data, k)
 	}

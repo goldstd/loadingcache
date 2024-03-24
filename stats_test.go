@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Hartimer/loadingcache"
 	"github.com/benbjohnson/clock"
+	"github.com/goldstd/loadingcache"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,9 +31,9 @@ func TestLoadTimes(t *testing.T) {
 	mockClock := clock.NewMock()
 	loadTime := 100 * time.Millisecond
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
+		cacheOptions: loadingcache.Options{
 			Clock: mockClock,
-			Load: func(key interface{}) (interface{}, error) {
+			Load: func(key any) (any, error) {
 				// Simulating that the loading takes 100ms
 				mockClock.Add(loadTime)
 				return key, nil
@@ -54,7 +54,7 @@ func TestLoadTimes(t *testing.T) {
 func TestLoadSuccessAndError(t *testing.T) {
 	loadFunc := &testLoadFunc{}
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.CacheOptions{
+		cacheOptions: loadingcache.Options{
 			Load: loadFunc.LoadFunc,
 		},
 	},

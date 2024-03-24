@@ -3,11 +3,10 @@ package loadingcache_test
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"testing"
 
-	"github.com/Hartimer/loadingcache"
 	"github.com/benbjohnson/clock"
+	"github.com/goldstd/loadingcache"
 	"github.com/pkg/errors"
 	"go.uber.org/goleak"
 )
@@ -25,35 +24,27 @@ type testLoadFunc struct {
 	fail bool
 }
 
-func (t *testLoadFunc) LoadFunc(key interface{}) (interface{}, error) {
+func (t *testLoadFunc) LoadFunc(key any) (any, error) {
 	if t.fail {
 		return nil, errors.New("failing on request")
 	}
 	return fmt.Sprint(key), nil
 }
 
-// stringHashCodeFunc is a test hash code function for strings which uses fnv.New32a
-var stringHashCodeFunc = func(k interface{}) int {
-	h := fnv.New32a()
-	if _, err := h.Write([]byte(k.(string))); err != nil {
-		panic(err)
-	}
-	return int(h.Sum32())
-}
-
 // intHashCodeFunc is a test hash code function for ints which just passes them through
-var intHashCodeFunc = func(k interface{}) int {
+var intHashCodeFunc = func(k any) int {
 	return k.(int)
 }
 
 func matrixBenchmark(b *testing.B,
-	options loadingcache.CacheOptions,
+	options loadingcache.Options,
 	setupFunc matrixBenchmarkSetupFunc,
-	testFunc matrixBenchmarkFunc) {
+	testFunc matrixBenchmarkFunc,
+) {
 	matrixOptions := cacheMatrixOptions(options)
 	b.ResetTimer()
 	for name := range matrixOptions {
-		cache := loadingcache.New(matrixOptions[name])
+		cache := matrixOptions[name].New()
 		setupFunc(b, cache)
 		b.Run(name, func(b *testing.B) {
 			b.ResetTimer()
@@ -80,7 +71,7 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 			cacheOptions.Clock = mockClock
 		}
 		ctx := put(context.Background(), utils)
-		cache := loadingcache.New(cacheOptions)
+		cache := cacheOptions.New()
 		if options.setupFunc != nil {
 			options.setupFunc(t, cache)
 		}
@@ -92,7 +83,7 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 }
 
 type matrixTestOptions struct {
-	cacheOptions loadingcache.CacheOptions
+	cacheOptions loadingcache.Options
 	setupFunc    func(t *testing.T, cache loadingcache.Cache)
 }
 
@@ -116,14 +107,14 @@ func get(ctx context.Context) *matrixTestUtils {
 
 type matrixTestFunc func(t *testing.T, ctx context.Context, cache loadingcache.Cache)
 
-func cacheMatrixOptions(baseOptions loadingcache.CacheOptions) map[string]loadingcache.CacheOptions {
-	matrix := map[string]loadingcache.CacheOptions{}
+func cacheMatrixOptions(baseOptions loadingcache.Options) map[string]loadingcache.Options {
+	matrix := map[string]loadingcache.Options{}
 
 	simpleOptions := baseOptions
 	simpleOptions.ShardCount = 1
 	matrix["Simple"] = simpleOptions
 
-	for _, shardCount := range []int{2, 3, 16, 32} {
+	for _, shardCount := range []uint32{2, 3, 16, 32} {
 		shardedOptions := baseOptions
 		shardedOptions.ShardCount = shardCount
 		shardedOptions.HashCodeFunc = intHashCodeFunc
