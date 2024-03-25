@@ -3,7 +3,11 @@
 At its core, loading cache is a rather simple cache implementation.
 It is heavily inspired by [Guava](https://github.com/google/guava/wiki/CachesExplained).
 
-# Basics
+## Features
+
+1. 2024年03月25日: 支持 key 过期时，异步加载，异步加载未完成时，访问对应的 Key 返回过期值.
+
+## Basics
 
 You can use it as a simple, no fuss cache.
 
@@ -12,11 +16,24 @@ package main
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/goldstd/loadingcache"
 )
 
+type sharedLoader struct{}
+
+func (b *sharedLoader) Load(a any) (any, error) {
+	// 从 redis / mysql 中加载数据
+	return "abc", nil
+}
+
 func main() {
-	cache := loadingcache.Config{}.Build()
+	cache := loadingcache.Config{
+		Load:             &sharedLoader{},
+		ExpireAfterWrite: 10 * time.Minute,
+		AsyncLoad:        true, // 支持 key 过期时，异步加载
+	}.Build()
 
 	// Adding some values and reading them
 	cache.Put("a", 1)
@@ -90,7 +107,6 @@ func main() {
 	// 3
 }
 ```
-
 
 # Benchmarks
 
