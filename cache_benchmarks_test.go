@@ -9,7 +9,7 @@ import (
 
 func BenchmarkGetMiss(b *testing.B) {
 	matrixBenchmark(b,
-		loadingcache.Options{},
+		loadingcache.Config{},
 		noopBenchmarkSetupFunc,
 		func(b *testing.B, cache loadingcache.Cache) {
 			for i := 0; i < b.N; i++ {
@@ -20,7 +20,7 @@ func BenchmarkGetMiss(b *testing.B) {
 
 func BenchmarkGetHit(b *testing.B) {
 	matrixBenchmark(b,
-		loadingcache.Options{},
+		loadingcache.Config{},
 		func(b *testing.B, cache loadingcache.Cache) {
 			cache.Put(1, "a")
 		},
@@ -36,7 +36,7 @@ func BenchmarkGetHit(b *testing.B) {
 
 func BenchmarkPutNew(b *testing.B) {
 	matrixBenchmark(b,
-		loadingcache.Options{},
+		loadingcache.Config{},
 		noopBenchmarkSetupFunc,
 		func(b *testing.B, cache loadingcache.Cache) {
 			for i := 0; i < b.N; i++ {
@@ -47,7 +47,7 @@ func BenchmarkPutNew(b *testing.B) {
 
 func BenchmarkPutNewNoPreWrite(b *testing.B) {
 	matrixBenchmark(b,
-		loadingcache.Options{EvictInterval: time.Second},
+		loadingcache.Config{EvictInterval: time.Second},
 		noopBenchmarkSetupFunc,
 		func(b *testing.B, cache loadingcache.Cache) {
 			for i := 0; i < b.N; i++ {
@@ -57,7 +57,7 @@ func BenchmarkPutNewNoPreWrite(b *testing.B) {
 }
 
 func BenchmarkPutReplace(b *testing.B) {
-	cache := loadingcache.Options{}.New()
+	cache := loadingcache.Config{}.Build()
 	cache.Put("a", 1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -66,9 +66,9 @@ func BenchmarkPutReplace(b *testing.B) {
 }
 
 func BenchmarkPutAtMaxSize(b *testing.B) {
-	cache := loadingcache.Options{
+	cache := loadingcache.Config{
 		MaxSize: 1,
-	}.New()
+	}.Build()
 	cache.Put("a", 1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

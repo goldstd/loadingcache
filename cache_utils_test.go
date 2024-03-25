@@ -37,14 +37,14 @@ var intHashCodeFunc = func(k any) int {
 }
 
 func matrixBenchmark(b *testing.B,
-	options loadingcache.Options,
+	options loadingcache.Config,
 	setupFunc matrixBenchmarkSetupFunc,
 	testFunc matrixBenchmarkFunc,
 ) {
 	matrixOptions := cacheMatrixOptions(options)
 	b.ResetTimer()
 	for name := range matrixOptions {
-		cache := matrixOptions[name].New()
+		cache := matrixOptions[name].Build()
 		setupFunc(b, cache)
 		b.Run(name, func(b *testing.B) {
 			b.ResetTimer()
@@ -71,7 +71,7 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 			cacheOptions.Clock = mockClock
 		}
 		ctx := put(context.Background(), utils)
-		cache := cacheOptions.New()
+		cache := cacheOptions.Build()
 		if options.setupFunc != nil {
 			options.setupFunc(t, cache)
 		}
@@ -83,7 +83,7 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 }
 
 type matrixTestOptions struct {
-	cacheOptions loadingcache.Options
+	cacheOptions loadingcache.Config
 	setupFunc    func(t *testing.T, cache loadingcache.Cache)
 }
 
@@ -107,8 +107,8 @@ func get(ctx context.Context) *matrixTestUtils {
 
 type matrixTestFunc func(t *testing.T, ctx context.Context, cache loadingcache.Cache)
 
-func cacheMatrixOptions(baseOptions loadingcache.Options) map[string]loadingcache.Options {
-	matrix := map[string]loadingcache.Options{}
+func cacheMatrixOptions(baseOptions loadingcache.Config) map[string]loadingcache.Config {
+	matrix := map[string]loadingcache.Config{}
 
 	simpleOptions := baseOptions
 	simpleOptions.ShardCount = 1
@@ -117,7 +117,7 @@ func cacheMatrixOptions(baseOptions loadingcache.Options) map[string]loadingcach
 	for _, shardCount := range []uint32{2, 3, 16, 32} {
 		shardedOptions := baseOptions
 		shardedOptions.ShardCount = shardCount
-		shardedOptions.HashCodeFunc = intHashCodeFunc
+		shardedOptions.ShardHashFunc = intHashCodeFunc
 		matrix[fmt.Sprintf("Sharded (%d)", shardCount)] = shardedOptions
 	}
 	return matrix

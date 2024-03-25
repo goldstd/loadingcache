@@ -73,6 +73,7 @@ type RemovalNotification struct {
 // RemovalListener represents a removal listener
 type RemovalListener func(RemovalNotification)
 
+// GetOption describes the option for Get
 type GetOption struct {
 	Load Loader
 }
@@ -106,8 +107,8 @@ type Cache interface {
 	IsSharded() bool
 }
 
-// Options available options to initialize the cache
-type Options struct {
+// Config available options to initialize the cache
+type Config struct {
 	// Clock allows passing a custom clock to be used with the cache.
 	//
 	// This is useful for testing, where controlling time is important.
@@ -116,11 +117,11 @@ type Options struct {
 	// Load configures a loading function
 	Load Loader
 
-	// HashCodeFunc is a function that produces a hashcode of the key.
+	// ShardHashFunc is a function that produces a hashcode of the key.
 	//
 	// See https://docs.oracle.com/en/java/javase/15/docs/api/java.base/java/lang/Object.html#hashCode()
 	// for best practices surrounding hash code functions.
-	HashCodeFunc func(key any) int
+	ShardHashFunc func(key any) int
 
 	// RemovalListeners configures a removal listeners
 	RemovalListeners []RemovalListener
@@ -144,7 +145,7 @@ type Options struct {
 	// MaxSize limits the number of entries allowed in the cache.
 	// If the limit is achieved, an eviction process will take place,
 	// this means that eviction policies will be executed such as write
-	// time, read time or random entry if no evection policy frees up
+	// time, read time or random entry if no eviction policy frees up
 	// space.
 	//
 	// If the cache is sharded, MaxSize is applied to each shard,
@@ -154,13 +155,13 @@ type Options struct {
 	// ShardCount indicates how many shards will be used by the cache.
 	// This allows some degree of parallelism in read and writing to the cache.
 	//
-	// If the shard count is greater than 1, then HashCodeFunc must be provided
+	// If the shard count is greater than 1, then ShardHashFunc must be provided
 	// otherwise the constructor will panic.
 	ShardCount uint32
 }
 
-// StringHashCodeFunc is a hash code function for strings which uses fnv.New32a
-var StringHashCodeFunc = func(k any) int {
+// StringFnvHashCodeFunc is a hash code function for strings which uses fnv.New32a
+var StringFnvHashCodeFunc = func(k any) int {
 	h := fnv.New32a()
 	if _, err := h.Write([]byte(k.(string))); err != nil {
 		panic(err)
@@ -168,11 +169,11 @@ var StringHashCodeFunc = func(k any) int {
 	return int(h.Sum32())
 }
 
-func (c Options) expiresAfterRead() bool {
+func (c Config) expiresAfterRead() bool {
 	return c.ExpireAfterRead > 0
 }
 
-func (c Options) expiresAfterWrite() bool {
+func (c Config) expiresAfterWrite() bool {
 	return c.ExpireAfterWrite > 0
 }
 
@@ -187,6 +188,7 @@ type Loader interface {
 // LoadFunc represents a function that given a key, it returns a value or an error.
 type LoadFunc func(any) (any, error)
 
+// Load implements the Loader interface.
 func (f LoadFunc) Load(k any) (any, error) {
 	return f(k)
 }
@@ -197,8 +199,8 @@ type cacheEntry struct {
 	lastWrite time.Time
 }
 
-// New instantiates a new cache
-func (c Options) New() Cache {
+// Build instantiates a new cache
+func (c Config) Build() Cache {
 	if c.Clock == nil {
 		c.Clock = clock.New()
 	}
@@ -206,10 +208,10 @@ func (c Options) New() Cache {
 	switch c.ShardCount {
 	case 0, 1:
 		c := &genericCache{
-			Options: c,
-			data:    map[any]*cacheEntry{},
-			done:    make(chan struct{}),
-			stats:   &stats.InternalStats{},
+			Config: c,
+			data:   map[any]*cacheEntry{},
+			done:   make(chan struct{}),
+			stats:  &stats.InternalStats{},
 		}
 		if c.EvictInterval > 0 {
 			c.backgroundWg.Add(1)
@@ -218,40 +220,40 @@ func (c Options) New() Cache {
 		return c
 	}
 
-	if c.HashCodeFunc == nil {
-		c.HashCodeFunc = StringHashCodeFunc
+	if c.ShardHashFunc == nil {
+		c.ShardHashFunc = StringFnvHashCodeFunc
 	}
 	singleShardOptions := c
 	singleShardOptions.ShardCount = 1
 	s := &shardedCache{
-		Options: c,
-		shards:  make([]Cache, c.ShardCount),
+		Config: c,
+		shards: make([]Cache, c.ShardCount),
 	}
 	for i := uint32(0); i < c.ShardCount; i++ {
-		s.shards[i] = singleShardOptions.New()
+		s.shards[i] = singleShardOptions.Build()
 	}
 	return s
 }
 
 type shardedCache struct {
 	shards []Cache
-	Options
+	Config
 }
 
 func (s *shardedCache) IsSharded() bool { return true }
 
 func (s *shardedCache) Get(key any, options ...GetOption) (any, error) {
-	val, err := s.shards[s.HashCodeFunc(key)%len(s.shards)].Get(key, options...)
+	val, err := s.shards[s.ShardHashFunc(key)%len(s.shards)].Get(key, options...)
 	return val, errors.Wrap(err, "shard get")
 }
 
 func (s *shardedCache) Put(key, value any) {
-	s.shards[s.HashCodeFunc(key)%len(s.shards)].Put(key, value)
+	s.shards[s.ShardHashFunc(key)%len(s.shards)].Put(key, value)
 }
 
 func (s *shardedCache) Invalidate(keys ...any) {
 	for _, k := range keys {
-		s.shards[s.HashCodeFunc(k)%len(s.shards)].Invalidate(k)
+		s.shards[s.ShardHashFunc(k)%len(s.shards)].Invalidate(k)
 	}
 }
 
@@ -288,7 +290,7 @@ type genericCache struct {
 	done chan struct{}
 
 	stats *stats.InternalStats
-	Options
+	Config
 
 	backgroundWg sync.WaitGroup
 
@@ -468,8 +470,8 @@ func (g *genericCache) preWriteCleanup() {
 	if g.EvictInterval > 0 {
 		return
 	}
-	for key := range g.data {
-		if reason, expired := g.isExpired(g.data[key]); expired {
+	for key, entry := range g.data {
+		if reason, expired := g.isExpired(entry); expired {
 			g.evict(key, reason)
 		}
 	}

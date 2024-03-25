@@ -11,11 +11,12 @@ You can use it as a simple, no fuss cache.
 package main
 
 import (
+	"fmt"
 	"github.com/goldstd/loadingcache"
 )
 
 func main() {
-	cache := loadingcache.Options{}.New()
+	cache := loadingcache.Config{}.Build()
 
 	// Adding some values and reading them
 	cache.Put("a", 1)
@@ -29,7 +30,7 @@ func main() {
 	// Getting a value that does not exist
 	_, err := cache.Get("d")
 	if errors.Is(err, loadingcache.ErrKeyNotFound) {
-	    fmt.Println("That key does not exist")
+		fmt.Println("That key does not exist")
 	}
 
 	// Evicting
@@ -41,6 +42,7 @@ func main() {
 	// 2
 	// That key does not exist
 }
+
 ```
 
 # Advanced
@@ -55,7 +57,7 @@ import (
 )
 
 func main() {
-	cache := loadingcache.Options{
+	cache := loadingcache.Config{
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,
 		ExpireAfterWrite: time.Minute,
@@ -64,11 +66,11 @@ func main() {
 				fmt.Printf("Entry removed due to %s\n", notification.Reason)
 			},
 		},
-		Load: func(key any) (any, error) {
+		ShardHashFunc: func(key any) (any, error) {
 			fmt.Printf("Loading key %v\n", key)
 			return fmt.Sprint(key), nil
 		},
-	}.New()
+	}.Build()
 
 	cache.Put(1, "1")
 	val1, _ := cache.Get(1)

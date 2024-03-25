@@ -69,7 +69,7 @@ func TestBasicMethods(t *testing.T) {
 
 func TestExpireAfterWrite(t *testing.T) {
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.Options{
+		cacheOptions: loadingcache.Config{
 			ExpireAfterWrite: time.Minute,
 		},
 	},
@@ -98,7 +98,7 @@ func TestExpireAfterWrite(t *testing.T) {
 
 func TestExpireAfterRead(t *testing.T) {
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.Options{
+		cacheOptions: loadingcache.Config{
 			ExpireAfterRead: time.Minute,
 		},
 	},
@@ -137,7 +137,7 @@ func TestExpireAfterRead(t *testing.T) {
 func TestLoadFunc(t *testing.T) {
 	loadFunc := &testLoadFunc{}
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.Options{
+		cacheOptions: loadingcache.Config{
 			Load: loadFunc,
 		},
 	},
@@ -176,7 +176,7 @@ func TestLoadFunc2(t *testing.T) {
 	loadFunc := &testLoadFunc{}
 	getOption := loadingcache.GetOption{Load: loadFunc}
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.Options{},
+		cacheOptions: loadingcache.Config{},
 	},
 		func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
 			defer func() {
@@ -212,14 +212,13 @@ func TestLoadFunc2(t *testing.T) {
 func TestMaxSize(t *testing.T) {
 	// TODO MaxSize is currently not properly enforced in a sharded environment
 	caches := []loadingcache.Cache{
-		loadingcache.Options{
+		loadingcache.Config{
 			MaxSize: 1,
-		}.New(),
-		loadingcache.Options{
-			MaxSize:      1,
-			ShardCount:   3,
-			HashCodeFunc: loadingcache.StringHashCodeFunc,
-		}.New(),
+		}.Build(),
+		loadingcache.Config{
+			MaxSize:    1,
+			ShardCount: 3,
+		}.Build(),
 	}
 	for _, cache := range caches {
 		// With a capacity of one element, adding a second element
@@ -238,11 +237,11 @@ func TestMaxSize(t *testing.T) {
 }
 
 func TestRemovalListeners(t *testing.T) {
-	//t.Skip("TODO Fix enforcement of MaxSize")
+	// t.Skip("TODO Fix enforcement of MaxSize")
 	removalListener := &testRemovalListener{}
 	removalListener2 := &testRemovalListener{}
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.Options{
+		cacheOptions: loadingcache.Config{
 			ExpireAfterRead:  time.Minute,
 			ExpireAfterWrite: 2 * time.Minute,
 			MaxSize:          1,
@@ -315,7 +314,7 @@ func TestRemovalListeners(t *testing.T) {
 func TestBackgroundEvict(t *testing.T) {
 	var removalWg sync.WaitGroup
 	matrixTest(t, matrixTestOptions{
-		cacheOptions: loadingcache.Options{
+		cacheOptions: loadingcache.Config{
 			ExpireAfterWrite: 20 * time.Second,
 			EvictInterval:    10 * time.Second,
 			RemovalListeners: []loadingcache.RemovalListener{func(notification loadingcache.RemovalNotification) {

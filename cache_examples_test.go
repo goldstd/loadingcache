@@ -9,7 +9,7 @@ import (
 )
 
 func ExampleCache_simpleUsage() {
-	cache := loadingcache.Options{}.New()
+	cache := loadingcache.Config{}.Build()
 
 	// Adding some values and reading them
 	cache.Put("a", 1)
@@ -37,7 +37,7 @@ func ExampleCache_simpleUsage() {
 }
 
 func ExampleCache_advancedUsage() {
-	cache := loadingcache.Options{
+	cache := loadingcache.Config{
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,
 		ExpireAfterWrite: time.Minute,
@@ -50,7 +50,7 @@ func ExampleCache_advancedUsage() {
 			fmt.Printf("Loading key %v\n", key)
 			return fmt.Sprint(key), nil
 		}),
-	}.New()
+	}.Build()
 
 	cache.Put(1, "1")
 	val1, _ := cache.Get(1)
