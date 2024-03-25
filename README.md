@@ -3,6 +3,8 @@
 At its core, loading cache is a rather simple cache implementation.
 It is heavily inspired by [Guava](https://github.com/google/guava/wiki/CachesExplained).
 
+[![image](./testdata/diagram.svg)](https://excalidraw.com/#json=wZ4HQF2bo3P4eGzxpOzd_,VkZ5fR28wpaOTbKCbZzHMQ)
+
 ## Features
 
 1. 2024年03月25日: 增加从 [Redis/DB 中异步加载缓存值](./loader/dbloader/dbloader_test.go#L16)的示例
