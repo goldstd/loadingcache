@@ -41,8 +41,8 @@ func ExampleCache_advancedUsage() {
 		MaxSize:          2,
 		ExpireAfterRead:  2 * time.Minute,
 		ExpireAfterWrite: time.Minute,
-		RemovalListeners: []loadingcache.RemovalListener{
-			func(notification loadingcache.RemovalNotification) {
+		EvictListeners: []loadingcache.RemovalListener{
+			func(notification loadingcache.EvictNotification) {
 				fmt.Printf("Entry removed due to %s\n", notification.Reason)
 			},
 		},

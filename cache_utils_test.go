@@ -8,14 +8,13 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/goldstd/loadingcache"
 	"github.com/pkg/errors"
-	"go.uber.org/goleak"
 )
 
 type testRemovalListener struct {
-	lastRemovalNotification loadingcache.RemovalNotification
+	lastRemovalNotification loadingcache.EvictNotification
 }
 
-func (t *testRemovalListener) Listener(notification loadingcache.RemovalNotification) {
+func (t *testRemovalListener) Listener(notification loadingcache.EvictNotification) {
 	t.lastRemovalNotification = notification
 }
 
@@ -60,7 +59,6 @@ var noopBenchmarkSetupFunc = func(b *testing.B, cache loadingcache.Cache) {}
 type matrixBenchmarkFunc func(b *testing.B, cache loadingcache.Cache)
 
 func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc) {
-	defer goleak.VerifyNone(t)
 	matrixOptions := cacheMatrixOptions(options.cacheOptions)
 	for name := range matrixOptions {
 		utils := &matrixTestUtils{}
@@ -72,9 +70,6 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 		}
 		ctx := put(context.Background(), utils)
 		cache := cacheOptions.Build()
-		if options.setupFunc != nil {
-			options.setupFunc(t, cache)
-		}
 		t.Run(name, func(t *testing.T) {
 			defer cache.Close()
 			testFunc(t, ctx, cache)
@@ -84,7 +79,6 @@ func matrixTest(t *testing.T, options matrixTestOptions, testFunc matrixTestFunc
 
 type matrixTestOptions struct {
 	cacheOptions loadingcache.Config
-	setupFunc    func(t *testing.T, cache loadingcache.Cache)
 }
 
 type matrixTestUtils struct {

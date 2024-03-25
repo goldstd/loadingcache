@@ -2,6 +2,8 @@ package loadingcache_test
 
 import (
 	"context"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/goleak"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +12,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestBasicMethods(t *testing.T) {
 	matrixTest(t, matrixTestOptions{}, func(t *testing.T, _ context.Context, cache loadingcache.Cache) {
@@ -245,7 +251,7 @@ func TestRemovalListeners(t *testing.T) {
 			ExpireAfterRead:  time.Minute,
 			ExpireAfterWrite: 2 * time.Minute,
 			MaxSize:          1,
-			RemovalListeners: []loadingcache.RemovalListener{removalListener.Listener, removalListener2.Listener},
+			EvictListeners:   []loadingcache.RemovalListener{removalListener.Listener, removalListener2.Listener},
 		},
 	},
 		func(t *testing.T, ctx context.Context, cache loadingcache.Cache) {
@@ -257,8 +263,8 @@ func TestRemovalListeners(t *testing.T) {
 			defer func() {
 				// The listeners are shared by the multiple iterations of the test.
 				// Ensure we clean up after ourselves.
-				removalListener.lastRemovalNotification = loadingcache.RemovalNotification{}
-				removalListener2.lastRemovalNotification = loadingcache.RemovalNotification{}
+				removalListener.lastRemovalNotification = loadingcache.EvictNotification{}
+				removalListener2.lastRemovalNotification = loadingcache.EvictNotification{}
 			}()
 
 			// Removal due to replacement
@@ -266,8 +272,8 @@ func TestRemovalListeners(t *testing.T) {
 			cache.Put(1, 1)
 			lastNotification := removalListener.lastRemovalNotification
 			lastNotification2 := removalListener2.lastRemovalNotification
-			require.Equal(t, loadingcache.RemovalReasonReplaced, lastNotification.Reason)
-			require.Equal(t, loadingcache.RemovalReasonReplaced, lastNotification2.Reason)
+			require.Equal(t, loadingcache.EvictReasonReplaced, lastNotification.Reason)
+			require.Equal(t, loadingcache.EvictReasonReplaced, lastNotification2.Reason)
 			require.Equal(t, 1, lastNotification.Key)
 			require.Equal(t, 10, lastNotification.Value)
 
@@ -275,8 +281,8 @@ func TestRemovalListeners(t *testing.T) {
 			cache.Put(2, 2)
 			lastNotification = removalListener.lastRemovalNotification
 			lastNotification2 = removalListener2.lastRemovalNotification
-			require.Equal(t, loadingcache.RemovalReasonSize, lastNotification.Reason)
-			require.Equal(t, loadingcache.RemovalReasonSize, lastNotification2.Reason)
+			require.Equal(t, loadingcache.EvictReasonSize, lastNotification.Reason)
+			require.Equal(t, loadingcache.EvictReasonSize, lastNotification2.Reason)
 			require.Equal(t, 1, lastNotification.Key)
 			require.Equal(t, 1, lastNotification.Value)
 
@@ -286,8 +292,8 @@ func TestRemovalListeners(t *testing.T) {
 			_, _ = cache.Get(2)
 			lastNotification = removalListener.lastRemovalNotification
 			lastNotification2 = removalListener2.lastRemovalNotification
-			require.Equal(t, loadingcache.RemovalReasonReadExpired, lastNotification.Reason)
-			require.Equal(t, loadingcache.RemovalReasonReadExpired, lastNotification2.Reason)
+			require.Equal(t, loadingcache.EvictReasonReadExpired, lastNotification.Reason)
+			require.Equal(t, loadingcache.EvictReasonReadExpired, lastNotification2.Reason)
 			require.Equal(t, 2, lastNotification.Key)
 			require.Equal(t, 2, lastNotification.Value)
 
@@ -304,8 +310,8 @@ func TestRemovalListeners(t *testing.T) {
 			_, _ = cache.Get(2)
 			lastNotification = removalListener.lastRemovalNotification
 			lastNotification2 = removalListener2.lastRemovalNotification
-			require.Equal(t, loadingcache.RemovalReasonWriteExpired, lastNotification.Reason)
-			require.Equal(t, loadingcache.RemovalReasonWriteExpired, lastNotification2.Reason)
+			require.Equal(t, loadingcache.EvictReasonWriteExpired, lastNotification.Reason)
+			require.Equal(t, loadingcache.EvictReasonWriteExpired, lastNotification2.Reason)
 			require.Equal(t, 2, lastNotification.Key)
 			require.Equal(t, 3, lastNotification.Value)
 		})
@@ -317,9 +323,9 @@ func TestBackgroundEvict(t *testing.T) {
 		cacheOptions: loadingcache.Config{
 			ExpireAfterWrite: 20 * time.Second,
 			EvictInterval:    10 * time.Second,
-			RemovalListeners: []loadingcache.RemovalListener{func(notification loadingcache.RemovalNotification) {
+			EvictListeners: []loadingcache.RemovalListener{func(notification loadingcache.EvictNotification) {
 				switch notification.Reason {
-				case loadingcache.RemovalReasonReadExpired, loadingcache.RemovalReasonWriteExpired:
+				case loadingcache.EvictReasonReadExpired, loadingcache.EvictReasonWriteExpired:
 					removalWg.Done()
 				}
 			}},
@@ -349,4 +355,46 @@ func TestBackgroundEvict(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, loadingcache.ErrKeyNotFound, errors.Cause(err))
 		})
+}
+
+type BusyLoader struct {
+	n int
+}
+
+func (b *BusyLoader) Load(a any) (any, error) {
+	b.n++
+	if b.n == 1 {
+		return "world", nil
+	}
+
+	time.Sleep(10 * time.Millisecond)
+	return "xxx", nil
+}
+
+func TestAsyncLoad(t *testing.T) {
+	cache := loadingcache.Config{
+		Load:             &BusyLoader{},
+		ExpireAfterWrite: 10 * time.Millisecond,
+		AsyncLoad:        true,
+	}.Build()
+	defer cache.Close()
+
+	v, err := cache.Get("k")
+	assert.Nil(t, err)
+	assert.Equal(t, "world", v)
+
+	v, err = cache.Get("k")
+	assert.Nil(t, err)
+	assert.Equal(t, "world", v)
+
+	time.Sleep(10 * time.Millisecond)
+	v, err = cache.Get("k")
+	v, err = cache.Get("k")
+	assert.Nil(t, err)
+	assert.Equal(t, "world", v)
+
+	time.Sleep(15 * time.Millisecond)
+	v, err = cache.Get("k")
+	assert.Nil(t, err)
+	assert.Equal(t, "xxx", v)
 }

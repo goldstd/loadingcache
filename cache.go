@@ -13,6 +13,7 @@ package loadingcache
 import (
 	"fmt"
 	"hash/fnv"
+	"log"
 	"sync"
 	"time"
 
@@ -24,54 +25,54 @@ import (
 // ErrKeyNotFound represents an error indicating that the key was not found
 var ErrKeyNotFound = errors.New("Key not found")
 
-// RemovalReason is an enum describing the causes for an entry to
+// EvictReason is an enum describing the causes for an entry to
 // be removed from the cache.
-type RemovalReason int
+type EvictReason int
 
 const (
-	// RemovalReasonExplicit means the entry was explicitly invalidated
-	RemovalReasonExplicit RemovalReason = iota
+	// EvictReasonExplicit means the entry was explicitly invalidated
+	EvictReasonExplicit EvictReason = iota
 
-	// RemovalReasonReplaced means the entry was replaced by a new one
-	RemovalReasonReplaced
+	// EvictReasonReplaced means the entry was replaced by a new one
+	EvictReasonReplaced
 
-	// RemovalReasonReadExpired means the entry read expired, e.g. too much time
+	// EvictReasonReadExpired means the entry read expired, e.g. too much time
 	// since last read/write.
-	RemovalReasonReadExpired
+	EvictReasonReadExpired
 
-	// RemovalReasonWriteExpired means the entry write expired, e.g. too much time
+	// EvictReasonWriteExpired means the entry write expired, e.g. too much time
 	// since last read/write.
-	RemovalReasonWriteExpired
+	EvictReasonWriteExpired
 
-	// RemovalReasonSize means the entry was removed due to the cache size.
-	RemovalReasonSize
+	// EvictReasonSize means the entry was removed due to the cache size.
+	EvictReasonSize
 )
 
-func (r RemovalReason) String() string {
+func (r EvictReason) String() string {
 	switch r {
-	case RemovalReasonExplicit:
+	case EvictReasonExplicit:
 		return "Explicit"
-	case RemovalReasonReplaced:
+	case EvictReasonReplaced:
 		return "Replaced"
-	case RemovalReasonReadExpired:
+	case EvictReasonReadExpired:
 		return "ReadExpired"
-	case RemovalReasonWriteExpired:
+	case EvictReasonWriteExpired:
 		return "WriteExpired"
-	case RemovalReasonSize:
+	case EvictReasonSize:
 		return "Size"
 	}
 	return "Unknown"
 }
 
-// RemovalNotification is passed to listeners everytime an entry is removed
-type RemovalNotification struct {
+// EvictNotification is passed to listeners everytime an entry is removed
+type EvictNotification struct {
 	Key    any
 	Value  any
-	Reason RemovalReason
+	Reason EvictReason
 }
 
 // RemovalListener represents a removal listener
-type RemovalListener func(RemovalNotification)
+type RemovalListener func(EvictNotification)
 
 // GetOption describes the option for Get
 type GetOption struct {
@@ -123,8 +124,8 @@ type Config struct {
 	// for best practices surrounding hash code functions.
 	ShardHashFunc func(key any) int
 
-	// RemovalListeners configures a removal listeners
-	RemovalListeners []RemovalListener
+	// EvictListeners configures a removal listeners
+	EvictListeners []RemovalListener
 
 	// ExpireAfterWrite configures the cache to expire entries after
 	// a given duration after writing.
@@ -158,6 +159,9 @@ type Config struct {
 	// If the shard count is greater than 1, then ShardHashFunc must be provided
 	// otherwise the constructor will panic.
 	ShardCount uint32
+
+	// AsyncLoad configures loading in async way after cache expired
+	AsyncLoad bool
 }
 
 // StringFnvHashCodeFunc is a hash code function for strings which uses fnv.New32a
@@ -197,6 +201,10 @@ type cacheEntry struct {
 	value     any
 	lastRead  time.Time
 	lastWrite time.Time
+
+	// asyncLoading tells if the entry is in async loading.
+	// the reader will return old value if it is ture.
+	asyncLoading bool
 }
 
 // Build instantiates a new cache
@@ -207,17 +215,17 @@ func (c Config) Build() Cache {
 
 	switch c.ShardCount {
 	case 0, 1:
-		c := &genericCache{
-			Config: c,
-			data:   map[any]*cacheEntry{},
-			done:   make(chan struct{}),
-			stats:  &stats.InternalStats{},
+		gc := &genericCache{
+			Config:      c,
+			data:        map[any]*cacheEntry{},
+			done:        make(chan struct{}),
+			stats:       &stats.InternalStats{},
+			asyncLoadCh: make(chan asyncLoadItem),
 		}
-		if c.EvictInterval > 0 {
-			c.backgroundWg.Add(1)
-			go c.runBackgroundEvict()
+		if gc.EvictInterval > 0 || c.AsyncLoad {
+			go gc.runBackgroundTask()
 		}
-		return c
+		return gc
 	}
 
 	if c.ShardHashFunc == nil {
@@ -282,6 +290,13 @@ func (s *shardedCache) Stats() Stats {
 	return statsSum
 }
 
+type asyncLoadItem struct {
+	key any
+	GetOption
+	loader Loader
+	reason EvictReason
+}
+
 // genericCache is an implementation of a cache where keys and values are
 // of type any
 type genericCache struct {
@@ -289,24 +304,23 @@ type genericCache struct {
 
 	done chan struct{}
 
-	stats *stats.InternalStats
+	stats       *stats.InternalStats
+	asyncLoadCh chan asyncLoadItem
 	Config
-
-	backgroundWg sync.WaitGroup
 
 	dataLock sync.RWMutex
 }
 
 func (g *genericCache) IsSharded() bool { return false }
 
-func (g *genericCache) isExpired(entry *cacheEntry) (RemovalReason, bool) {
+func (g *genericCache) isExpired(entry *cacheEntry) (EvictReason, bool) {
 	if g.expiresAfterRead() && entry.lastRead.Add(g.ExpireAfterRead).Before(g.Clock.Now()) {
-		return RemovalReasonReadExpired, true
+		return EvictReasonReadExpired, true
 	}
 	if g.expiresAfterWrite() && entry.lastWrite.Add(g.ExpireAfterWrite).Before(g.Clock.Now()) {
-		return RemovalReasonWriteExpired, true
+		return EvictReasonWriteExpired, true
 	}
-	return RemovalReasonExplicit, false
+	return EvictReasonExplicit, false
 }
 
 func (g *genericCache) Get(key any, options ...GetOption) (any, error) {
@@ -327,12 +341,29 @@ func (g *genericCache) Get(key any, options ...GetOption) (any, error) {
 	}
 	// Create a copy of the value to return to avoid concurrent updates
 	toReturn := entry.value
+	entryAsyncLoading := entry.asyncLoading
 	g.dataLock.RUnlock()
 
-	if reason, expired := g.isExpired(entry); expired {
-		g.concurrentEvict(key, reason)
-		val, err := g.load(key, option)
-		return val, errors.Wrap(err, "loading")
+	if !entryAsyncLoading {
+		if reason, expired := g.isExpired(entry); expired {
+			loader := g.getLoader(option)
+			if loader == nil || !g.AsyncLoad {
+				g.concurrentEvict(key, reason)
+				val, err := g.load(key, option)
+				return val, errors.Wrap(err, "loading")
+			}
+
+			select {
+			case g.asyncLoadCh <- asyncLoadItem{
+				key:       key,
+				GetOption: option,
+				loader:    loader,
+				reason:    reason,
+			}:
+			default:
+				// ignore
+			}
+		}
 	}
 	// It is possible that this will race. It will only be a problem
 	// if the expiry thresholds have to be respected with a high
@@ -342,11 +373,40 @@ func (g *genericCache) Get(key any, options ...GetOption) (any, error) {
 	return toReturn, nil
 }
 
-func (g *genericCache) load(key any, option GetOption) (any, error) {
-	loader := option.Load
-	if loader == nil {
-		loader = g.Load
+func (g *genericCache) getLoader(option GetOption) Loader {
+	if option.Load != nil {
+		return option.Load
 	}
+	return g.Load
+}
+
+func (g *genericCache) asyncLoad(item asyncLoadItem) {
+	g.dataLock.Lock()
+	entry, exists := g.data[item.key]
+	if exists {
+		entry.asyncLoading = true
+	}
+	g.dataLock.Unlock()
+
+	loadStartTime := g.Clock.Now()
+	val, err := item.loader.Load(item.key)
+	if err != nil {
+		g.stats.LoadError()
+		log.Printf("E! load key %v error: %v", item.key, err)
+		return
+	}
+
+	g.stats.LoadTime(g.Clock.Now().Sub(loadStartTime))
+	g.stats.LoadSuccess()
+
+	g.dataLock.Lock()
+	g.evict(item.key, item.reason)
+	g.internalPut(item.key, val)
+	g.dataLock.Unlock()
+}
+
+func (g *genericCache) load(key any, option GetOption) (any, error) {
+	loader := g.getLoader(option)
 
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
@@ -374,22 +434,30 @@ func (g *genericCache) load(key any, option GetOption) (any, error) {
 	return val, nil
 }
 
-func (g *genericCache) concurrentEvict(key any, reason RemovalReason) {
+func (g *genericCache) concurrentEvict(key any, reason EvictReason) {
 	g.dataLock.Lock()
 	defer g.dataLock.Unlock()
 	g.evict(key, reason)
 }
 
-func (g *genericCache) runBackgroundEvict() {
-	ticker := g.Clock.Ticker(g.EvictInterval)
+func (g *genericCache) runBackgroundTask() {
+	evictInterval := g.EvictInterval
+	if evictInterval <= 0 {
+		evictInterval = 1 * time.Minute
+	}
+
+	ticker := g.Clock.Ticker(evictInterval)
 	defer ticker.Stop()
-	defer g.backgroundWg.Done()
 	for {
 		select {
 		case <-g.done:
 			return
+		case loadItem := <-g.asyncLoadCh:
+			g.asyncLoad(loadItem)
 		case <-ticker.C:
-			g.backgroundEvict()
+			if g.EvictInterval > 0 {
+				g.backgroundEvict()
+			}
 		}
 	}
 }
@@ -410,7 +478,7 @@ func (g *genericCache) backgroundEvict() {
 	}
 }
 
-func (g *genericCache) evict(key any, reason RemovalReason) {
+func (g *genericCache) evict(key any, reason EvictReason) {
 	val, exists := g.data[key]
 	if !exists {
 		return
@@ -418,10 +486,10 @@ func (g *genericCache) evict(key any, reason RemovalReason) {
 	g.stats.Eviction()
 	delete(g.data, key)
 
-	if len(g.RemovalListeners) == 0 {
+	if len(g.EvictListeners) == 0 {
 		return
 	}
-	notification := RemovalNotification{
+	notification := EvictNotification{
 		Key:    key,
 		Value:  val.value,
 		Reason: reason,
@@ -431,9 +499,9 @@ func (g *genericCache) evict(key any, reason RemovalReason) {
 	// This could potentially be early optimization, but seems
 	// simple enough.
 	var listenerWg sync.WaitGroup
-	listenerWg.Add(len(g.RemovalListeners))
-	for i := range g.RemovalListeners {
-		listener := g.RemovalListeners[i]
+	listenerWg.Add(len(g.EvictListeners))
+	for i := range g.EvictListeners {
+		listener := g.EvictListeners[i]
 		go func() {
 			defer listenerWg.Done()
 			listener(notification)
@@ -450,7 +518,7 @@ func (g *genericCache) internalPut(key any, value any) {
 		// since maps do not have a deterministic order.
 		// TODO: Apply smarter eviction policies if available
 		for toEvict := range g.data {
-			g.evict(toEvict, RemovalReasonSize)
+			g.evict(toEvict, EvictReasonSize)
 			break
 		}
 	}
@@ -482,7 +550,7 @@ func (g *genericCache) Put(key, value any) {
 	defer g.dataLock.Unlock()
 	g.preWriteCleanup()
 	if _, exists := g.data[key]; exists {
-		g.evict(key, RemovalReasonReplaced)
+		g.evict(key, EvictReasonReplaced)
 	}
 	g.internalPut(key, value)
 }
@@ -505,8 +573,7 @@ func (g *genericCache) InvalidateAll() {
 
 func (g *genericCache) Close() {
 	close(g.done)
-	// Ensure that we wait for all background tasks to complete.
-	g.backgroundWg.Wait()
+	close(g.asyncLoadCh)
 }
 
 func (g *genericCache) Stats() Stats {
