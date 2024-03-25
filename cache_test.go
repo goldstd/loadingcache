@@ -2,15 +2,15 @@ package loadingcache_test
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/goleak"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/goldstd/loadingcache"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) {

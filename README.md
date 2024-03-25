@@ -5,7 +5,8 @@ It is heavily inspired by [Guava](https://github.com/google/guava/wiki/CachesExp
 
 ## Features
 
-1. 2024年03月25日: 支持 key 过期时，异步加载，异步加载未完成时，访问对应的 Key 返回过期值.
+1. 2024年03月25日: 增加从 [Redis/DB 中异步加载缓存值](./loader/dbloader/dbloader_test.go#L16)的示例
+2. 2024年03月25日: 支持 key 过期时，异步加载，异步加载未完成时，访问对应的 Key 返回过期值.
 
 ## Basics
 
