@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -50,7 +51,18 @@ func main() {
 }
 
 func httpHandle(w http.ResponseWriter, r *http.Request) {
+	key := "k1"
+	if strings.HasPrefix(r.URL.Path, "/key/") {
+		key = r.URL.Path[5:]
+	}
 
+	value, err := cache.Get(key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(value.(string)))
+	}
 }
 
 type DBLoader struct {
