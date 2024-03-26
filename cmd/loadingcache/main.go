@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"flag"
-
 	"io"
 	"log"
 	"net/http"
@@ -89,7 +88,7 @@ type DBLoader struct {
 	Query string
 }
 
-func (d *DBLoader) Load(key any) (any, error) {
+func (d *DBLoader) Load(key any, cache loadingcache.Cache) (any, error) {
 	row, err := d.DB.Query(d.Query, key)
 	if err != nil {
 		return nil, err

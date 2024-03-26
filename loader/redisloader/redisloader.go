@@ -50,7 +50,7 @@ func (r *RedisLoader) WithKeyAdapter(keyAdapter KeyAdapter) *RedisLoader {
 	return r
 }
 
-func (r *RedisLoader) Load(key any) (any, error) {
+func (r *RedisLoader) Load(key any, cache loadingcache.Cache) (any, error) {
 	if r.KeyAdapter != nil {
 		var err error
 		key, err = r.AdaptKey(key)
@@ -70,7 +70,7 @@ func (r *RedisLoader) Load(key any) (any, error) {
 		return r.UnmarshalRedis(result)
 	}
 
-	value, err := r.Loader.Load(key)
+	value, err := r.Loader.Load(key, cache)
 	if err != nil {
 		return nil, err
 	}

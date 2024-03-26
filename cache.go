@@ -184,17 +184,23 @@ func (c Config) expiresAfterWrite() bool {
 // CacheOption describes an option that can configure the cache
 type CacheOption func(Cache)
 
+// ErrAlreadySet can be returned by Loader to tell the caller that
+// the cache had already been set by its self.
+var ErrAlreadySet = errors.New("Cache already set")
+
 // Loader represents an interface for loading cache value.
 type Loader interface {
-	Load(any) (any, error)
+	// Load loads the latest value by the key.
+	// err can be ErrAlreadySet to indicate that the loader had been set the cache.
+	Load(key any, cache Cache) (any, error)
 }
 
 // LoadFunc represents a function that given a key, it returns a value or an error.
-type LoadFunc func(any) (any, error)
+type LoadFunc func(key any, cache Cache) (any, error)
 
 // Load implements the Loader interface.
-func (f LoadFunc) Load(k any) (any, error) {
-	return f(k)
+func (f LoadFunc) Load(key any, cache Cache) (any, error) {
+	return f(key, cache)
 }
 
 type cacheEntry struct {
@@ -389,7 +395,13 @@ func (g *genericCache) asyncLoad(item asyncLoadItem) {
 	g.dataLock.Unlock()
 
 	loadStartTime := g.Clock.Now()
-	val, err := item.loader.Load(item.key)
+	val, err := item.loader.Load(item.key, g)
+	if err == nil || errors.Is(err, ErrAlreadySet) {
+		g.stats.LoadTime(g.Clock.Now().Sub(loadStartTime))
+		g.stats.LoadSuccess()
+		return
+	}
+
 	if err != nil {
 		g.stats.LoadError()
 		log.Printf("E! load key %v error: %v", item.key, err)
@@ -422,14 +434,17 @@ func (g *genericCache) load(key any, option GetOption) (any, error) {
 	}
 
 	loadStartTime := g.Clock.Now()
-	val, err := loader.Load(key)
-	if err != nil {
+	val, err := loader.Load(key, g)
+	alreadySet := errors.Is(err, ErrAlreadySet)
+	if err != nil && !alreadySet {
 		g.stats.LoadError()
 		return nil, errors.Wrapf(err, "failed to load key %v", key)
 	}
 	g.stats.LoadTime(g.Clock.Now().Sub(loadStartTime))
 	g.stats.LoadSuccess()
-	g.internalPut(key, val)
+	if !alreadySet {
+		g.internalPut(key, val)
+	}
 	return val, nil
 }
 
