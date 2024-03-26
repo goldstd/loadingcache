@@ -2,3 +2,5 @@
 show tables;
 select * from gcache;
 update gcache set v = '@姓名';
+%set --think 5s --times 10;
+update gcache set v = '@姓名';
