@@ -1,2 +1,5 @@
 experiment
 coverage.txt
+
+*.pprof
+

@@ -1,3 +1,4 @@
 %connect mysql://root:root@127.0.0.1:3306/gcache;
 show tables;
 select * from gcache;
+update gcache set v = '@姓名';
