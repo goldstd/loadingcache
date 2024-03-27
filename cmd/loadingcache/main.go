@@ -89,6 +89,9 @@ type DBLoader struct {
 }
 
 func (d *DBLoader) Load(key any, cache loadingcache.Cache) (any, error) {
+	// 这里演示根据 key 查找一条记录的情况
+	// 也可以一次查出所有需要缓存的数据，然后通过 cache 接口设置好，
+	// 然后返回 loadingcache.ErrAlreadySet 通知调用者
 	row, err := d.DB.Query(d.Query, key)
 	if err != nil {
 		return nil, err
@@ -103,6 +106,8 @@ func (d *DBLoader) Load(key any, cache loadingcache.Cache) (any, error) {
 		}
 	}
 
+	// 这里演示直接返回字符串的情况
+	// 如果需要返回其它结构体，请先 unmarshalling
 	return val.String, nil
 }
 
