@@ -361,7 +361,7 @@ type BusyLoader struct {
 	n int
 }
 
-func (b *BusyLoader) Load(a any) (any, error) {
+func (b *BusyLoader) Load(a any, _ loadingcache.Cache) (any, error) {
 	b.n++
 	if b.n == 1 {
 		return "world", nil

@@ -396,13 +396,9 @@ func (g *genericCache) asyncLoad(item asyncLoadItem) {
 
 	loadStartTime := g.Clock.Now()
 	val, err := item.loader.Load(item.key, g)
-	if err == nil || errors.Is(err, ErrAlreadySet) {
-		g.stats.LoadTime(g.Clock.Now().Sub(loadStartTime))
-		g.stats.LoadSuccess()
-		return
-	}
 
-	if err != nil {
+	alreadySet := errors.Is(err, ErrAlreadySet)
+	if err != nil && !alreadySet {
 		g.stats.LoadError()
 		log.Printf("E! load key %v error: %v", item.key, err)
 		return
@@ -411,10 +407,12 @@ func (g *genericCache) asyncLoad(item asyncLoadItem) {
 	g.stats.LoadTime(g.Clock.Now().Sub(loadStartTime))
 	g.stats.LoadSuccess()
 
-	g.dataLock.Lock()
-	g.evict(item.key, item.reason)
-	g.internalPut(item.key, val)
-	g.dataLock.Unlock()
+	if !alreadySet {
+		g.dataLock.Lock()
+		g.evict(item.key, item.reason)
+		g.internalPut(item.key, val)
+		g.dataLock.Unlock()
+	}
 }
 
 func (g *genericCache) load(key any, option GetOption) (any, error) {

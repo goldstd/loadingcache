@@ -46,7 +46,7 @@ func ExampleCache_advancedUsage() {
 				fmt.Printf("Entry removed due to %s\n", notification.Reason)
 			},
 		},
-		Load: loadingcache.LoadFunc(func(key any) (any, error) {
+		Load: loadingcache.LoadFunc(func(key any, _ loadingcache.Cache) (any, error) {
 			fmt.Printf("Loading key %v\n", key)
 			return fmt.Sprint(key), nil
 		}),

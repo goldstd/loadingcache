@@ -23,7 +23,7 @@ type testLoadFunc struct {
 	fail bool
 }
 
-func (t *testLoadFunc) Load(key any) (any, error) {
+func (t *testLoadFunc) Load(key any, _ loadingcache.Cache) (any, error) {
 	if t.fail {
 		return nil, errors.New("failing on request")
 	}

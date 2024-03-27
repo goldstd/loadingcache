@@ -33,7 +33,7 @@ func TestLoadTimes(t *testing.T) {
 	matrixTest(t, matrixTestOptions{
 		cacheOptions: loadingcache.Config{
 			Clock: mockClock,
-			Load: loadingcache.LoadFunc(func(key any) (any, error) {
+			Load: loadingcache.LoadFunc(func(key any, _ loadingcache.Cache) (any, error) {
 				// Simulating that the loading takes 100ms
 				mockClock.Add(loadTime)
 				return key, nil
