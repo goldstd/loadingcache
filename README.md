@@ -111,7 +111,7 @@ func main() {
 }
 ```
 
-# Benchmarks
+## Benchmarks
 
 Although preliminary, below you can find some benchmarks (included in the repo).
 
@@ -147,3 +147,47 @@ PASS
 ok      github.com/goldstd/loadingcache 74.447s
 
 ```
+
+
+## gocache
+
+☔️ [gocache](https://github.com/eko/gocache) A complete Go cache library that brings you multiple ways of managing your caches
+☔️ 一个完整的 Go 缓存库，为您提供多种管理缓存的方式 
+Starting from this interface, the implemented cache types are the following:
+
+- Cache: The basic cache that allows to manipulate data from the given stores,
+- Chain: A special cache adapter that allows to chain multiple cache (could be because you have a memory cache, a redis cache, etc...),
+- Loadable: A special cache adapter that allows to specify a kind of callback function to automatically reload data into your cache if expired or invalidated,
+- Metric: A special cache adapter that allows to store metrics about your cache data: how many items setted, getted, invalidated, successfully or not.
+
+A loadable cache 可加载的缓存
+
+This cache will provide a load function that acts as a callable function and will set your data back in your cache in case they are not available:
+此缓存将提供一个加载函数，该函数充当可调用函数，并在数据不可用时将数据放回缓存中：
+
+```go
+type Book struct {
+    ID string
+    Name string
+}
+
+// Initialize Redis client and store
+redisClient := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
+redisStore := redis_store.NewRedis(redisClient)
+
+// Initialize a load function that loads your data from a custom source
+loadFunction := func(ctx context.Context, key any) (*Book, error) {
+    // ... retrieve value from available source
+    return &Book{ID: 1, Name: "My test amazing book"}, nil
+}
+
+// Initialize loadable cache
+cacheManager := cache.NewLoadable[*Book](
+    loadFunction,
+    cache.New[*Book](redisStore),
+)
+
+// ... Then, you can get your data and your function will automatically put them in cache(s)
+```
+
+Of course, you can also pass a Chain cache into the Loadable one so if your data is not available in all caches, it will bring it back in all caches.
